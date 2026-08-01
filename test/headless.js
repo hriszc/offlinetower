@@ -134,6 +134,7 @@ console.log('--- 技能自动释放 / 局内攻击升级 / 局间道具（回归
   assert(b5.skillCdMult() === 0.85, '局间道具冷却缩减生效');
   // 道具替换参数序（回归满 6 替换 bug:replaceItem(旧,新)）
   const sv = Save;
+  sv.load();   // headless 无 localStorage,走 catch 回退 defaultSave（浏览器由 Game.init 触发）
   sv.addItem('atk');
   assert(sv.items().join() === 'atk', 'addItem 生效');
   assert(sv.replaceItem('atk', 'frq') === true, 'replaceItem(旧,新) 替换成功');
