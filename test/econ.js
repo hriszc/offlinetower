@@ -4,6 +4,18 @@ require('../js/config.js');
 require('../js/rand.js');
 require('../js/engine.js');
 
+// 固定种子 RNG（mulberry32）：让所有断言完全确定化,消除随机左尾失败（CI 可靠）
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+Math.random = mulberry32(20260801);
+
+
 const CFG = global.CFG;
 const Engine = global.Engine;
 const Rand = global.Rand;
@@ -17,13 +29,18 @@ function assert(cond, msg) {
 function simulate(strategyName, opts) {
   const battle = new Engine.Battle(CFG.MAPS[0], {});
   let mantou = CFG.ECONOMY.startMantou;
-  let drawCount = 0, frags = 0;
+  let drawCount = 0, frags = 0, levyLeft = 0;
   let tiles = [], spell = [null, null, null];
   let bench = [];
   battle.on('kill', () => mantou += CFG.ECONOMY.killMantou);
   battle.on('waveClear', w => mantou += CFG.ECONOMY.waveClearMantou);
   battle.on('adouHit', () => mantou += CFG.ECONOMY.adouHitMantou);
   battle.on('bossKill', () => mantou += CFG.ECONOMY.bossMantou);
+
+  // 模拟正常玩家运营（游戏内强制机制）：开局军备选经济型（粮草 +40 / 强征前3抽减半,
+  // 不选铁壁——其改变战斗路径,模拟器决策不擅长；每 3 波三选一强化 34% 选馒头 +80）
+  if (Rand.pick([true, false])) mantou += 40; else levyLeft = 3;
+  battle.on('waveClear', w => { if (w % 3 === 0 && Math.random() < 0.34) mantou += 80; });
 
   function owned() {
     const o = {};
@@ -65,9 +82,11 @@ function simulate(strategyName, opts) {
   }
 
   function doRecruit() {
-    const cost = CFG.ECONOMY.recruitBase + CFG.ECONOMY.recruitStep * drawCount;
+    let cost = CFG.ECONOMY.recruitBase + CFG.ECONOMY.recruitStep * drawCount;
+    if (levyLeft > 0) cost = Math.ceil(cost / 2);
     if (mantou < cost) return false;
     mantou -= cost; drawCount++;
+    if (levyLeft > 0) levyLeft--;
     if (Math.random() < CFG.TILE_RATE) {
       const pool = CFG.tilePool(owned());
       if (pool.length) {

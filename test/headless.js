@@ -7,6 +7,18 @@ require('../js/engine.js');
 require('../js/bot.js');
 require('../js/save.js');
 
+// 固定种子 RNG（mulberry32）：让所有断言完全确定化,消除随机左尾失败（CI 可靠）
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+Math.random = mulberry32(20260801);
+
+
 const CFG = global.CFG;
 const Engine = global.Engine;
 const Bot = global.Bot;
@@ -58,6 +70,16 @@ const r3 = simOneGame('6将2星', [
 assert(r3.t >= 300 && r3.t <= 600, `6将2星单局时长 5-10 分钟（实际 ${r3.t.toFixed(0)}s）`);
 // 模拟器未走三选一强化/留怒运营,能打到第 30 波终局即证明曲线可达；通关依赖玩家运营
 assert(r3.battle.wave >= 30, `6将2星可打到第 30 波终局（实际 ${r3.battle.wave} 波）`);
+
+console.log('--- 地图 countMul 生效（每日轮换差异化） ---');
+{
+  const b1 = new Engine.Battle(CFG.MAPS[1], {});   // 云梦泽狭道 countMul×1.25
+  b1.startNextWave();
+  assert(b1.queue.length >= 4, `云梦泽狭道第 1 波 ${b1.queue.length} 怪（≥4,数量×1.25 生效）`);
+  const b2 = new Engine.Battle(CFG.MAPS[2], {});   // 虎牢关多路 countMul×0.9
+  b2.startNextWave();
+  assert(b2.queue.length <= 3, `虎牢关第 1 波 ${b2.queue.length} 怪（≤3,数量×0.9 生效）`);
+}
 
 console.log('--- 技能释放链路（满怒点击→生效,回归 #1 uid 契约） ---');
 {

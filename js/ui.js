@@ -18,6 +18,7 @@ window.UI = (function () {
   /* ================= 基础 ================= */
   function init() {
     bindStatic();
+    benchZoneEl = $('#bench');
     // 拖拽监听只需绑定一次;pointercancel 兜底（移动端手势被打断时清理 ghost/hint）
     window.addEventListener('pointermove', onDragMove);
     window.addEventListener('pointerup', onDragEnd);
@@ -30,6 +31,7 @@ window.UI = (function () {
     drag = null;
     if (hoverHintEl) { hoverHintEl.remove(); hoverHintEl = null; }
     if (d.ghost) { d.ghost.remove(); }
+    if (benchZoneEl) benchZoneEl.classList.remove('bench-recalling');
   }
 
   function bindStatic() {
@@ -231,7 +233,8 @@ window.UI = (function () {
   function makeGenCard(g, info) {
     const d = document.createElement('div');
     d.className = 'gen-card ' + g.quality.toLowerCase();
-    const stars = '★'.repeat(info.star || 1) + '☆'.repeat(5 - (info.star || 1));
+    const st = Math.max(0, info.star || 0);           // 图鉴未收集 star=0 → 0 实心星
+    const stars = '★'.repeat(st) + '☆'.repeat(5 - st);
     d.innerHTML =
       '<div class="gc-name">' + g.name + '</div>' +
       '<div class="gc-cls">' + CFG.CLS_NAMES[g.cls] + (g.quality === 'SSR' ? ' · 传奇' : ' · 史诗') + '</div>' +
@@ -366,28 +369,37 @@ window.UI = (function () {
     if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 8) drag.moved = true;
     if (drag.moved) {
       const p = boardPos(ev);
-      const r = boardEl.getBoundingClientRect();
       if (drag.ghost) {
         drag.ghost.style.left = (ev.clientX - 30) + 'px';
         drag.ghost.style.top = (ev.clientY - 30) + 'px';
       }
-      // 高亮格子
+      // 高亮格子 / 板凳召回提示（判定区与 onDragEnd 统一）
       updateHoverHint(p, ev);
-      // 棋盘武将拖出棋盘 → 显示收回
-      const overBench = $('#bench').getBoundingClientRect();
-      const inBench = ev.clientY > overBench.top && ev.clientY < overBench.bottom && ev.clientX > overBench.left - 40 && ev.clientX < overBench.right + 40;
-      if (hoverHintEl) {
-        hoverHintEl.classList.toggle('bad', !p.overBoard || (drag.type === 'bench' && !Game.battle.canPlace(p.col, p.row)));
-      }
-      drag.benchHover = inBench;
+      benchZoneEl.classList.toggle('bench-recalling', drag.type === 'unit' && overBenchZone(ev));
     }
   }
+
+  // 板凳召回区判定（move 与 end 共用同一口径）
+  function overBenchZone(ev) {
+    const r = $('#bench').getBoundingClientRect();
+    return ev.clientY > r.top - 20 && ev.clientY < r.bottom + 20 &&
+      ev.clientX > r.left - 40 && ev.clientX < r.right + 40;
+  }
+  let benchZoneEl = null;
 
   function updateHoverHint(p, ev) {
     if (!hoverHintEl) {
       hoverHintEl = document.createElement('div');
       hoverHintEl.className = 'cell-hint';
       boardEl.appendChild(hoverHintEl);
+    }
+    // 结算后 battle 可能为 null：不显示格子提示（game 侧已判空兜底）
+    if (!Game.battle) { hoverHintEl.style.display = 'none'; return; }
+    const isUnitRecall = drag.type === 'unit' && overBenchZone(ev);
+    if (isUnitRecall) {
+      // 拖武将到板凳区：提示可召回（金色,与"可部署"同义不同位置）
+      hoverHintEl.style.display = 'none';
+      return;
     }
     if (p.overBoard) {
       hoverHintEl.style.display = 'block';
@@ -408,14 +420,14 @@ window.UI = (function () {
     drag = null;
     if (hoverHintEl) { hoverHintEl.remove(); hoverHintEl = null; }
     if (d.ghost) { d.ghost.remove(); }
+    benchZoneEl.classList.remove('bench-recalling');
     if (!d.moved) {
       // 未移动:棋盘武将视为点击 → 释放技能
       if (d.type === 'unit') Game.castUnit(d.uid);
       return;
     }
     const p = boardPos(ev);
-    const overBench = $('#bench').getBoundingClientRect();
-    const inBench = ev.clientY > overBench.top && ev.clientY < overBench.bottom;
+    const inBench = overBenchZone(ev);
     if (d.type === 'bench') {
       if (p.overBoard) Game.placeUnit(d.idx, p.col, p.row);
     } else if (d.type === 'unit') {

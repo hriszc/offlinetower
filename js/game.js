@@ -197,6 +197,7 @@ window.Game = (function () {
 
   /* ================= 布阵 ================= */
   function placeUnit(benchIdx, col, row) {
+    if (!battle || !run) return false;
     const item = run.bench[benchIdx];
     if (!item) return false;
     if (!battle.canPlace(col, row)) return false;
@@ -215,12 +216,14 @@ window.Game = (function () {
     return false;
   }
   function moveUnit(uid, col, row) {
+    if (!battle || !run) return false;
     const u = findUnit(uid);
     if (!u || !battle.canPlace(col, row)) return false;
     u.col = col; u.row = row;
     return true;
   }
   function recallUnit(uid) {
+    if (!battle || !run) return;
     const u = findUnit(uid);
     if (!u) return;
     battle.recall(u);
@@ -233,6 +236,7 @@ window.Game = (function () {
     return battle.units.find(u => u._uid === n) || null;
   }
   function castUnit(uid) {
+    if (!battle || !run) return;
     const u = findUnit(uid);
     if (!u) return;
     if (u.fury < 100) { UI.tip('怒气不足（' + Math.floor(u.fury) + '/100）'); return; }

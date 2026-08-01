@@ -148,7 +148,8 @@ window.Engine = (function () {
       // POW 约束：怪物总 POW ≤ 玩家 POW × 1.5（方案 §5.4），超出则削减数量。
       // 校验与生成共用同一份类型抽样与血量/速度口径（含地图系数与 BOSS 减速），避免低估。
       const playerPOW = this.units.reduce((s, u) => s + this.effAtk(u) * this.effFrq(u) * this.effRge(u) * u.baseTargets(), 0);
-      let count = wc.count;
+      // 地图数量系数（云梦泽 ×1.25 多怪 / 虎牢关 ×0.9 少怪）,校验与生成共用
+      let count = Math.round(wc.count * this.map.countMul);
       const types = [];
       for (let i = 0; i < count; i++) types.push(Rand.pick(CFG.MONSTER_TYPES_KEYS));
       let wavePow = 0;
