@@ -91,7 +91,6 @@ window.Engine = (function () {
       this.units = [];                  // 已部署武将
       this.adou = { hp: 3, maxHp: 3 };
       this.teamBuffs = { atkAdd: 0, frqAdd: 0, until: 0 };
-      this.bonds = [];                  // 当前激活羁绊
       this.over = false; this.result = null;
       this.popUsed = 0; this.popMax = 6;
       this.pendingSpawn = 0;
@@ -114,7 +113,6 @@ window.Engine = (function () {
       unit.cd = 0.3;                     // 部署后短暂准备
       this.units.push(unit);
       this.popUsed++;
-      this.recalcBonds();
       return true;
     }
     recall(unit) {
@@ -123,7 +121,6 @@ window.Engine = (function () {
       this.units.splice(i, 1);
       unit.deployed = false; unit.col = -1; unit.row = -1;
       this.popUsed--;
-      this.recalcBonds();
       return true;
     }
     // 检查某个格子能否部署
@@ -134,40 +131,11 @@ window.Engine = (function () {
       return !this.units.some(u => u.col === col && u.row === row);
     }
 
-    /* ---------- 羁绊（方案 §4.5.3） ---------- */
-    recalcBonds() {
-      const names = this.units.map(u => u.gen.name);
-      const active = CFG.BONDS.filter(b => b.members.every(m => names.includes(m)));
-      this.bonds = active;
-      // 人中吕布：吕布在场且上阵 ≤2 人
-      const lbu = this.units.find(u => u.gen.name === '吕布');
-      const lbuSolo = lbu && this.units.length <= 2;
-      this.lubuSolo = lbuSolo;
-    }
-    bondAtkAdd() {
-      let a = 0;
-      if (this.bonds.some(b => b.id === 'taoyuan')) a += 0.15;
-      if (this.bonds.some(b => b.id === 'xiong')) a += 0.10;
-      if (this.bonds.some(b => b.id === 'sanfen')) a += 0.10;
-      return a;
-    }
-    bondFrqAdd() {
-      let f = 0;
-      if (this.bonds.some(b => b.id === 'sunliu')) f += 0.15;
-      if (this.bonds.some(b => b.id === 'sanfen')) f += 0.10;
-      return f;
-    }
-    bondCrit() {
-      const b = { rate: 0.10, dmg: 0.5 };
-      if (this.bonds.some(x => x.id === 'wuhu')) { b.rate += 0.15; b.dmg += 0.30; }
-      if (this.bonds.some(x => x.id === 'sanfen')) { b.rate += 0.02; }
-      return b;
-    }
+    /* ---------- 战力（无羁绊，按任务 spec：职业克制×个人技能×站位） ---------- */
+    baseCrit() { return { rate: 0.12, dmg: 0.5 }; }
     skillCdMult() {
-      let m = 1;
-      if (this.units.some(u => u.gen.id === 'zhugeliang')) m *= 0.85;   // 卧龙被动
-      if (this.bonds.some(x => x.id === 'xiong')) m *= 0.85;
-      return m;
+      // 诸葛亮个人被动：技能冷却 -15%
+      return this.units.some(u => u.gen.id === 'zhugeliang') ? 0.85 : 1;
     }
 
     /* ---------- 波次 ---------- */
@@ -286,23 +254,17 @@ window.Engine = (function () {
     }
 
     effAtk(u) {
-      let a = u.baseAtk() * (1 + this.teamBuffs.atkAdd + this.bondAtkAdd() + u.buffAtk);
-      if (this.lubuSolo && u.gen.name === '吕布') a *= 1.4;
-      return a;
+      return u.baseAtk() * (1 + this.teamBuffs.atkAdd + u.buffAtk);
     }
     effFrq(u) {
-      let f = u.baseFrq() * (1 + this.teamBuffs.frqAdd + this.bondFrqAdd() + u.buffFrq);
-      if (this.lubuSolo && u.gen.name === '吕布') f *= 1.1;
-      return f;
+      return u.baseFrq() * (1 + this.teamBuffs.frqAdd + u.buffFrq);
     }
     effRge(u) {
-      let r = u.baseRge();
-      if (this.lubuSolo && u.gen.name === '吕布') r *= 1.2;
-      return r;
+      return u.baseRge();
     }
 
     calcDmg(u, m) {
-      const c = this.bondCrit();
+      const c = this.baseCrit();
       const crit = Math.random() < c.rate ? (1 + c.dmg) : 1;
       const mult = CFG.dmgMult(u.gen.cls, m);
       return { dmg: Math.max(1, Math.round(this.effAtk(u) * mult * crit)), crit: crit > 1 };

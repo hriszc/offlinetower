@@ -149,9 +149,9 @@ window.UI = (function () {
       adouEl.innerHTML = '斗<div class="adou-hp">' + '❤'.repeat(battle.adou.hp) + '</div>';
       adouEl.classList.toggle('dead', battle.adou.hp <= 0);
     }
-    // buffs
+    // buffs（无羁绊，保留容器以便后续扩展）
     const bub = $('#hud-buffs');
-    bub.innerHTML = battle.bonds.map(b => '<span class="buff-chip">' + b.name + '</span>').join('');
+    bub.innerHTML = '';
     // 按钮状态实时刷新（战斗中获得资源后可用）
     let cost = CFG.ECONOMY.recruitBase + CFG.ECONOMY.recruitStep * run.drawCount;
     if (run.levyLeft > 0) cost = Math.ceil(cost / 2);
@@ -216,13 +216,11 @@ window.UI = (function () {
     const d = document.createElement('div');
     d.className = 'gen-card ' + g.quality.toLowerCase();
     const stars = '★'.repeat(info.star || 1) + '☆'.repeat(5 - (info.star || 1));
-    const bonds = CFG.BONDS.filter(b => b.members.includes(g.name)).map(b => b.name).join('·');
     d.innerHTML =
       '<div class="gc-name">' + g.name + '</div>' +
       '<div class="gc-cls">' + CFG.CLS_NAMES[g.cls] + (g.quality === 'SSR' ? ' · 传奇' : ' · 史诗') + '</div>' +
       '<div class="gc-star">' + stars + '</div>' +
       '<div class="gc-lv">Lv.' + (info.level || 1) + '</div>' +
-      '<div class="gc-bonds">' + bonds + '</div>' +
       '<div class="gc-skill">技:' + g.skill.name + '</div>';
     return d;
   }
@@ -663,9 +661,6 @@ window.UI = (function () {
       grid.appendChild(card);
     });
     $('#gallery-count').textContent = owned + '/10 已收集';
-    const bonds = $('#bond-list');
-    bonds.innerHTML = CFG.BONDS.map(b =>
-      '<div class="bond-item"><b>' + b.name + '</b>(' + b.members.join('、') + ')<br>' + b.desc + '</div>').join('');
   }
 
   /* ================= 渲染循环 ================= */

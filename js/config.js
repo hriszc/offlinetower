@@ -41,16 +41,6 @@ window.CFG = (function () {
       skill: { name: '坐断东南', desc: '立即获得150馒头并全队+10%攻击,持续6秒', type: 'economy' } }
   ];
 
-  /* ---------- 羁绊（6 组） ---------- */
-  const BONDS = [
-    { id: 'taoyuan', name: '桃园结义', members: ['刘备', '关羽', '张飞'], desc: '全队攻击 +15%' },
-    { id: 'wuhu', name: '五虎威名', members: ['关羽', '张飞', '赵云'], desc: '全队暴击率 +15%,暴伤 +30%' },
-    { id: 'sunliu', name: '孙刘联盟', members: ['刘备', '周瑜', '诸葛亮'], desc: '全队攻速 +15%' },
-    { id: 'xiong', name: '乱世枭雄', members: ['曹操', '司马懿'], desc: '全队增伤 +10%,技能冷却 -15%' },
-    { id: 'sanfen', name: '三分天下', members: ['曹操', '刘备', '孙权'], desc: '全属性 +10%' },
-    { id: 'lvbu', name: '人中吕布', members: ['吕布'], desc: '吕布单将上阵时伤害 +40%、范围 +20%' }
-  ];
-
   /* ---------- 职业克制：枪克骑·骑克刀·刀克枪；弓压近战；谋克精英/BOSS ---------- */
   function dmgMult(cls, monster) {
     const t = monster.type;
@@ -87,7 +77,7 @@ window.CFG = (function () {
     弓: { label: '弓', hp: 0.8,  spd: 0.75, atk: 1, atkSpd: 0.8 } // 到达后攻速快
   };
   const MONSTER_TYPES_KEYS = ['骑', '刀', '枪', '弓'];
-  const BASE_MON_HP = 22;      // 第 1 波基础血量
+  const BASE_MON_HP = 19;      // 第 1 波基础血量（去羁绊后微调 -14% 以维持难度曲线）
   const WAVE_HP_GROW = 1.08;   // 怪物血量成长
   const WAVE_ATK_GROW = 1.05;  // 怪物攻击频率成长（到达阿斗后的攻击间隔缩短）
 
@@ -181,7 +171,7 @@ window.CFG = (function () {
   ];
 
   return {
-    GENERALS, BONDS, CLS_NAMES, dmgMult,
+    GENERALS, CLS_NAMES, dmgMult,
     tilePool, MONSTER_TYPES, MONSTER_TYPES_KEYS,
     BASE_MON_HP, WAVE_HP_GROW, WAVE_ATK_GROW,
     MAX_WAVE, waveConfig,

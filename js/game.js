@@ -218,7 +218,6 @@ window.Game = (function () {
     const u = findUnit(uid);
     if (!u || !battle.canPlace(col, row)) return false;
     u.col = col; u.row = row;
-    battle.recalcBonds();
     return true;
   }
   function recallUnit(uid) {
