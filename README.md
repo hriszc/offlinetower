@@ -20,6 +20,7 @@ python3 -m http.server 8000   # 然后浏览器打开 http://localhost:8000
 ```bash
 node test/headless.js   # 战斗数值配平 / 技能自动释放 / 局内攻击升级 / 局间道具 / 武器精炼 / 机器人分层
 node test/econ.js       # 经济循环：征兵→拼字召唤→布阵→防守（与 game.js 真实逻辑一致）
+node test/drag.smoke.js # 拖拽链路冒烟：召唤→拖到棋盘→换位→拖回召回 + 对手实时推进（oppLive）
 ```
 
 ## 架构

@@ -22,6 +22,8 @@ body{
   user-select:none;
   touch-action:manipulation;
 }
+/* 触屏拖拽：可拖拽元素必须禁用浏览器手势接管，否则 pointermove 被滚动拦截（用户实测：武将拖不到棋盘） */
+.gen-card, .unit, .tile{ touch-action:none; }
 .hidden{ display:none !important; }
 button{ font-family:inherit; cursor:pointer; }
 
@@ -123,6 +125,24 @@ button{ font-family:inherit; cursor:pointer; }
 }
 .hud-opp .opp-name{ font-weight:bold; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .hud-opp .opp-info{ font-size:12px; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* 对手实时对抗展示（反馈 2） */
+.hud-opp .opp-body{ min-width:0; flex:1; }
+.hud-opp .opp-tag{ font-size:11px; margin-left:6px; color:var(--red-deep); background:rgba(168,52,42,.1); border:1px solid rgba(168,52,42,.4); border-radius:8px; padding:0 5px; }
+.opp-bars{ display:flex; flex-direction:column; gap:3px; margin-top:5px; }
+.opp-bar{ display:flex; align-items:center; gap:6px; font-size:11px; }
+.ob-label{ flex:none; width:16px; font-weight:bold; }
+.ob-label.me{ color:var(--green); } .ob-label.opp{ color:var(--red-deep); }
+.ob-track{ flex:1; height:7px; background:rgba(0,0,0,.16); border-radius:4px; overflow:hidden; border:1px solid rgba(43,35,32,.25); }
+.ob-fill{ height:100%; transition:width .25s; }
+.ob-fill.me{ background:linear-gradient(90deg,#3f6d3f,#7cb06b); }
+.ob-fill.opp{ background:linear-gradient(90deg,#a8342a,#e07a6c); }
+.ob-txt{ flex:none; width:34px; text-align:right; color:var(--ink-soft); }
+.opp-hp{ font-size:12px; margin-top:3px; color:var(--red-deep); }
+.opp-hp .hp-lost{ color:#c9bfa6; }
+.opp-state{ font-size:11px; color:var(--green); margin-top:1px; }
+.opp-state.fallen{ color:var(--red-deep); font-weight:bold; }
+.hud-opp .avatar.fallen{ filter:grayscale(1) brightness(.75); }
+.settle-opp-line{ font-size:13px; color:var(--ink-soft); margin:8px 0 2px; line-height:1.6; }
 .hud-center{ text-align:center; flex:none; }
 .hud-wave{ font-size:15px; }
 .hud-wave b{ color:var(--red-deep); font-size:19px; }

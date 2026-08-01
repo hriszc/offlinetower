@@ -184,7 +184,13 @@ window.Game = (function () {
     if (!battle || !run) return false;
     const item = run.bench[benchIdx];
     if (!item) return false;
-    if (!battle.canPlace(col, row)) return false;
+    if (!battle.canPlace(col, row)) {
+      // 布阵失败给明确提示（人口满 / 阿斗列 / 格子占用），避免「拖了没反应」的困惑
+      if (battle.popUsed >= battle.popMax) UI.tip('人口已满(6 人),召回一名武将再布阵');
+      else if (col === 6) UI.tip('阿斗营帐前不能布阵');
+      else UI.tip('该格已被占用');
+      return false;
+    }
     const u = new Engine.Unit(item.name, item.level);
     u.attackCount = item.attackCount; u.kills = item.kills;
     if (battle.deploy(u, col, row)) {
@@ -312,6 +318,16 @@ window.Game = (function () {
     return Save.replaceItem(oldId, newId);
   }
 
+  /* ================= 对手实时推进（反馈 2：假 PVP 实时对抗展示） ================= */
+  // 纯函数：按对手预设坚持波数同步推进——波次封顶 opp.waves，血量 3→0 线性递减，超过即倒下
+  function oppLive(opp, wave) {
+    const pw = Math.min(wave, opp.waves);
+    const fallen = wave > opp.waves;
+    const hpMax = 3;
+    const hp = opp.waves <= 0 ? 0 : Math.max(0, Math.ceil(hpMax * (1 - pw / opp.waves)));
+    return { pw, fallen, hp, hpMax };
+  }
+
   /* ================= 结算 ================= */
   function settle(result) {
     // 防竞态：finish 后 500ms 内玩家点撤退/回主城会置空 run/battle
@@ -421,6 +437,7 @@ window.Game = (function () {
     placeUnit, moveUnit, recallUnit,
     pickRewardItem, replaceRewardItem,
     refineWeapon,
+    oppLive,
     watchAd, checkSummonable, resume,
     backToMenu, quitToMenu,
     get run() { return run; }, get battle() { return battle; }, get state() { return state; },

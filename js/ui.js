@@ -115,13 +115,44 @@ window.UI = (function () {
     monsterEls = {}; unitEls = {}; unitIdSeq = 0;
   }
 
+  /* 对手实时对抗展示（反馈 2）：上半屏对手卡随战斗推进——
+   * 对手按预设坚持波数同步推进（封顶 opp.waves），血量线性递减至 0 后倒下，
+   * 与玩家波次进度条并排对比，营造全程 PK 的对抗感。 */
   function buildHudOpp(opp) {
     const el = $('#hud-opp');
-    el.innerHTML = '<div class="avatar">' + opp.avatar + '</div>' +
-      '<div style="min-width:0"><div class="opp-name">' + opp.nick + '</div>' +
-      '<div class="opp-info">' + opp.rankName + ' · 坚持 ' + opp.waves + ' 波 · ' + fmtTime(opp.timeSec) + ' · 剩 ' + opp.adouLeft + ' ❤</div>' +
-      '<div class="opp-info">阵容:' + opp.lineup.slice(0, 4).join('·') + (opp.lineup.length > 4 ? '…' : '') + '</div></div>' +
-      '<span class="opp-tag">' + opp.tag + '</span>';
+    el.innerHTML = '<div class="avatar" id="opp-avatar">' + opp.avatar + '</div>' +
+      '<div class="opp-body">' +
+      '<div class="opp-name">' + opp.nick + '<span class="opp-tag">' + opp.tag + '</span></div>' +
+      '<div class="opp-info">' + opp.rankName + ' · 阵容:' + opp.lineup.slice(0, 4).join('·') + (opp.lineup.length > 4 ? '…' : '') + '</div>' +
+      '<div class="opp-bars">' +
+      '<div class="opp-bar"><span class="ob-label me">你</span><div class="ob-track"><div class="ob-fill me" id="my-wave-fill"></div></div><span class="ob-txt" id="my-wave-txt">0/' + CFG.MAX_WAVE + '</span></div>' +
+      '<div class="opp-bar"><span class="ob-label opp">敌</span><div class="ob-track"><div class="ob-fill opp" id="opp-wave-fill"></div></div><span class="ob-txt" id="opp-wave-txt">0/' + CFG.MAX_WAVE + '</span></div>' +
+      '</div>' +
+      '<div class="opp-hp" id="opp-hp">对手阿斗 ❤❤❤</div>' +
+      '<div class="opp-state" id="opp-state">对战中</div>' +
+      '</div>';
+  }
+  // 每帧更新对手实时状态（在 renderBattle 中调用）
+  function updateOppLive(run, battle) {
+    const opp = run.opp;
+    const wave = battle.wave;
+    const st = Game.oppLive(opp, wave);          // 纯函数：推进波次/血量/倒下状态
+    const myW = Math.min(wave, CFG.MAX_WAVE);
+    const myFill = $('#my-wave-fill'), oppFill = $('#opp-wave-fill');
+    if (myFill) myFill.style.width = (myW / CFG.MAX_WAVE * 100) + '%';
+    if (oppFill) oppFill.style.width = (st.pw / CFG.MAX_WAVE * 100) + '%';
+    const mt = $('#my-wave-txt'), ot = $('#opp-wave-txt');
+    if (mt) mt.textContent = myW + '/' + CFG.MAX_WAVE;
+    if (ot) ot.textContent = st.pw + '/' + CFG.MAX_WAVE;
+    const ohp = $('#opp-hp');
+    if (ohp) ohp.innerHTML = '对手阿斗 ' + '❤'.repeat(st.hp) + '<span class="hp-lost">🖤'.repeat(st.hpMax - st.hp) + '</span>';
+    const stEl = $('#opp-state');
+    if (stEl) {
+      stEl.textContent = st.fallen ? '已败 · 坚持 ' + opp.waves + ' 波' : '对战中';
+      stEl.classList.toggle('fallen', st.fallen);
+    }
+    const av = $('#opp-avatar');
+    if (av) av.classList.toggle('fallen', st.fallen);
   }
 
   /* ================= 刷新静态区 ================= */
@@ -603,6 +634,10 @@ window.UI = (function () {
       '<div class="cb-fill opp" style="width:' + (100 - mePct) + '%"></div></div>' +
       '<div class="cb-side">' + r.opp.nick + '<br><b>' + r.opp.waves + '</b>波</div>' +
       '</div>' +
+      '<div class="settle-opp-line">' +
+      '你:坚持 <b>' + r.myWaves + '</b> 波 · ' + fmtTime(r.myTime) + ' · 剩 ' + r.myAdou + ' ❤&nbsp;&nbsp;|&nbsp;&nbsp;' +
+      '对手「' + r.opp.nick + '」:坚持 <b>' + r.opp.waves + '</b> 波 · ' + fmtTime(r.opp.timeSec) + ' · 剩 ' + r.opp.adouLeft + ' ❤' +
+      '</div>' +
       stars +
       '<div class="reward-line">蜜獾币 <b>+' + r.coins + '</b> · 军衔积分 <b>+' + r.score + '</b></div>' +
       (r.isFirst ? '<p style="color:#7c2118">首战完成！教学结束,此后按正常规则开局</p>' : '') +
@@ -743,6 +778,7 @@ window.UI = (function () {
     if (Game.state !== 'battle' || !run || !battle) return;
     refreshHud(run, battle);
     refreshUnits(run, battle);
+    updateOppLive(run, battle);
   }
 
   function fmtTime(sec) {
