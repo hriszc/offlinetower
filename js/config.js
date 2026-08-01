@@ -88,9 +88,8 @@ window.CFG = (function () {
   };
   const MONSTER_TYPES_KEYS = ['骑', '刀', '枪', '弓'];
   const BASE_MON_HP = 22;      // 第 1 波基础血量
-  const BASE_MON_ATK = 1;      // 打到阿斗每次扣 1 滴
-  const WAVE_HP_GROW = 1.08;   // 血量成长
-  const WAVE_ATK_GROW = 1.05;  // 攻击成长
+  const WAVE_HP_GROW = 1.08;   // 怪物血量成长
+  const WAVE_ATK_GROW = 1.05;  // 怪物攻击频率成长（到达阿斗后的攻击间隔缩短）
 
   /* ---------- 波次 ---------- */
   const MAX_WAVE = 30;
@@ -122,8 +121,8 @@ window.CFG = (function () {
   const TILE_RATE = 0.6;    // 抽卡出字牌 60% / 碎片 40%
 
   /* ---------- 武将成长（方案 §5.4 升星系数 1.50/1.40/1.30/1.20） ---------- */
+  // 最小闭环采用「重复拼出直接 +1 星」；方案的三合一升星（STAR_COST）留 P1
   const STAR_MULT = { 1: 1.00, 2: 1.50, 3: 2.10, 4: 2.73, 5: 3.28 };
-  const STAR_COST = { 2: 3, 3: 3, 4: 4, 5: 5 };   // 升星所需同名牌数（三合一思路）
   const LV_GROW = 0.08;     // 每级 +8% 属性
   function expNeed(level) { return 3 * level; }
 
@@ -184,10 +183,10 @@ window.CFG = (function () {
   return {
     GENERALS, BONDS, CLS_NAMES, dmgMult,
     tilePool, MONSTER_TYPES, MONSTER_TYPES_KEYS,
-    BASE_MON_HP, BASE_MON_ATK, WAVE_HP_GROW, WAVE_ATK_GROW,
+    BASE_MON_HP, WAVE_HP_GROW, WAVE_ATK_GROW,
     MAX_WAVE, waveConfig,
     ECONOMY, TILE_RATE,
-    STAR_MULT, STAR_COST, LV_GROW, expNeed,
+    STAR_MULT, LV_GROW, expNeed,
     RANKS, SCORE_WIN, SCORE_LOSE,
     MAPS, mapOfDay,
     BOT_LAYERS, NICKNAMES, BOT_AVATARS,

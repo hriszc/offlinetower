@@ -28,7 +28,6 @@ window.Engine = (function () {
     }
     resetStats(cfg) {
       this.hp = cfg.hp; this.maxHp = cfg.hp;
-      this.atk = cfg.atk;
       this.atkGap = cfg.atkGap;
     }
     update(dt, battle) {
@@ -61,7 +60,6 @@ window.Engine = (function () {
       if (this.hp <= 0) { this.dead = true; battle.onMonsterKilled(this, attacker); }
       return v;
     }
-    effectiveHp() { return this.maxHp * (1 + this.dmgTaken); }
   }
 
   class Unit {
@@ -212,11 +210,11 @@ window.Engine = (function () {
       const mt = CFG.MONSTER_TYPES[cfg.type];
       const wc = CFG.waveConfig(this.wave);
       let hp = CFG.BASE_MON_HP * wc.hpMul * mt.hp;
-      let atk = 1;
       if (cfg.elite) { hp *= 2; }
       if (cfg.boss) { hp *= 12; }
+      // 阿斗为滴制（1 滴/次），怪物攻击成长体现在攻击间隔缩短：gap = 1.2 / 1.05^(n-1)
       const atkGap = (mt.atkSpd || 1.2) / Math.pow(CFG.WAVE_ATK_GROW, this.wave - 1);
-      m.resetStats({ hp: hp, atk: atk, atkGap: Math.max(0.35, atkGap) });
+      m.resetStats({ hp: hp, atkGap: Math.max(0.35, atkGap) });
       this.monsters.push(m);
       this.emit('monsterSpawn', m);
       return m;
@@ -282,9 +280,6 @@ window.Engine = (function () {
             const r = this.calcDmg(u, t);
             t.damage(r.dmg, u, this);
             this.emit('dmg', t, r.dmg, r.crit);
-          }
-          if (u.fury >= 100 && u.skillCd <= 0 && !this.over) {
-            this.emit('furyReady', u);
           }
         }
       }

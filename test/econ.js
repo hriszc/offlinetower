@@ -1,4 +1,4 @@
-// 经济循环模拟：自动征兵/拼字/召唤/布阵,验证馒头经济与成长
+// 经济循环模拟：与 game.js 真实逻辑一致的征兵/拼字/召唤/布阵 + 断言
 global.window = global;
 require('../js/config.js');
 require('../js/rand.js');
@@ -8,18 +8,22 @@ const CFG = global.CFG;
 const Engine = global.Engine;
 const Rand = global.Rand;
 
+let failures = 0;
+function assert(cond, msg) {
+  if (!cond) { failures++; console.error('✗ 断言失败: ' + msg); }
+  else console.log('✓ ' + msg);
+}
+
 function simulate(strategyName, opts) {
   const battle = new Engine.Battle(CFG.MAPS[0], {});
   let mantou = CFG.ECONOMY.startMantou;
   let drawCount = 0, frags = 0;
   let tiles = [], spell = [null, null, null];
   let bench = [];
-  const ev = { kills: 0, finish: null };
   battle.on('kill', () => mantou += CFG.ECONOMY.killMantou);
   battle.on('waveClear', w => mantou += CFG.ECONOMY.waveClearMantou);
   battle.on('adouHit', () => mantou += CFG.ECONOMY.adouHitMantou);
   battle.on('bossKill', () => mantou += CFG.ECONOMY.bossMantou);
-  battle.on('finish', r => ev.finish = r);
 
   function owned() {
     const o = {};
@@ -32,8 +36,8 @@ function simulate(strategyName, opts) {
     if (!chars) return null;
     return CFG.GENERALS.find(g => g.chars.slice().sort().join('') === chars) || null;
   }
-  // 部署策略：优先中路(覆盖多行),再补边缘
-  const DEPLOY_ORDER = [[1,2],[2,2],[1,1],[2,1],[1,3],[2,3],[1,0],[2,0],[1,4],[2,4],[3,2],[3,1],[3,3],[0,2],[3,0],[3,4],[0,1],[0,3],[4,2],[0,0],[0,4],[4,1],[4,3],[5,2],[4,0],[4,4],[5,1],[5,3],[5,0],[5,4]];
+  // 部署策略：中路优先（覆盖多行），同 game.js 首将赠池站位逻辑
+  const DEPLOY_ORDER = [[2, 2], [1, 2], [2, 1], [1, 1], [2, 3], [1, 3], [3, 2], [2, 0], [2, 4], [3, 1], [3, 3], [1, 0], [1, 4], [0, 2], [3, 0], [3, 4], [0, 1], [0, 3], [4, 2], [0, 0], [0, 4], [4, 1], [4, 3], [5, 2], [4, 0], [4, 4], [5, 1], [5, 3], [5, 0], [5, 4]];
   let depIdx = 0;
   function tryDeploy() {
     if (!bench.length) return;
@@ -49,14 +53,14 @@ function simulate(strategyName, opts) {
       depIdx++;
     }
   }
-  // 首局送赵/云；正常局送随机 2 字武将全套字牌
+  // 与 game.js 一致：首局送赵/云；正常局赠 2字+rge≥3 武将全套字牌
   if (opts && opts.firstGame) {
     mantou += 20;
     tiles.push({ char: '赵', general: '赵云', quality: 'SSR' });
     tiles.push({ char: '云', general: '赵云', quality: 'SSR' });
   } else if (opts && opts.gift) {
-    const twoChar = CFG.GENERALS.filter(g => g.chars.length === 2 && g.atk >= 12);
-    const g = Rand.pick(twoChar);
+    const giftPool = CFG.GENERALS.filter(g => g.chars.length === 2 && g.rge >= 3 && g.atk * g.frq >= 10);
+    const g = Rand.pick(giftPool);
     for (const c of g.chars) tiles.push({ char: c, general: g.name, quality: g.quality });
   }
 
@@ -81,7 +85,6 @@ function simulate(strategyName, opts) {
     }
     return true;
   }
-  // 拼字:优先补全已有字牌最多的武将
   function placeTile() {
     let best = null, bestMiss = 99, bestIdx = -1, bestSlot = -1;
     for (const g of CFG.GENERALS) {
@@ -116,27 +119,41 @@ function simulate(strategyName, opts) {
         bench.push({ name: g.name, star: 1, level: 1, exp: 0, kills: 0 });
       }
     } else if (g) {
-      // 拼齐但钱不够 → 等待卖血攒钱（不征兵）
+      // 拼齐但钱不够 → 等待卖血攒钱
     } else if (placeTile()) {
       // 拼字凑字中
     } else {
-      doRecruit();   // 其余时间征兵
+      doRecruit();
     }
     tryDeploy();
     battle.update(0.05);
     t += 0.05;
   }
   const names = battle.units.map(u => u.gen.name + '★' + u.star + 'L' + u.level);
+  const summoned = bench.length + battle.units.length;
   console.log(`[${strategyName}] result=${battle.result} wave=${battle.wave} time=${t.toFixed(0)}s ` +
-    `召唤=${bench.length + battle.units.length}人 场上=[${names.join(',')}] ` +
-    `馒头=${mantou} 抽卡=${drawCount}次 碎片=${frags}`);
+    `召唤=${summoned}人 场上=[${names.join(',')}] 馒头=${mantou} 抽卡=${drawCount}次 碎片=${frags}`);
+  return { battle, summoned };
 }
 
-simulate('首局(送赵/云)', { firstGame: true });
-simulate('正常局');
-simulate('正常局2');
-simulate('正常局3');
-// 正常局模拟:赠送随机 2 字武将全套字牌
-simulate('正常局(赠字牌)', { gift: true });
-simulate('正常局2(赠字牌)', { gift: true });
-simulate('正常局3(赠字牌)', { gift: true });
+console.log('--- 经济循环（与 game.js 赠字逻辑一致） ---');
+const r1 = simulate('首局(送赵/云)', { firstGame: true });
+assert(r1.summoned >= 1, '首局能召唤至少 1 将');
+assert(r1.battle.wave >= 2, `首局至少撑到第 2 波（实际 ${r1.battle.wave} 波）`);
+
+const N = 20;
+let minWave = 99, failFirst = 0, avgWave = 0;
+for (let i = 0; i < N; i++) {
+  const r = simulate('正常局#' + (i + 1), { gift: true });
+  if (r.summoned < 1) { console.error('✗ 正常局未召唤出首将'); failures++; }
+  if (r.battle.wave < 2) failFirst++;
+  minWave = Math.min(minWave, r.battle.wave);
+  avgWave += r.battle.wave;
+}
+avgWave /= N;
+assert(failFirst === 0, `正常局 ${N} 局无一第 1 波崩盘（崩 ${failFirst} 局）`);
+assert(minWave >= 2, `正常局最低撑到第 ${minWave} 波（≥2）`);
+assert(avgWave >= 3, `正常局平均撑 ${avgWave.toFixed(1)} 波（≥3）`);
+
+console.log(failures === 0 ? '\n全部断言通过 ✔' : `\n${failures} 项断言失败 ✗`);
+process.exitCode = failures > 0 ? 1 : 0;

@@ -30,9 +30,9 @@ window.Bot = (function () {
     return w;
   }
 
-  // 用时模拟：约每波 24-38 秒
+  // 用时模拟：校准到真实局节奏（headless 实测约 10-13 秒/波），每波 10-16 秒
   function genTime(waves) {
-    return Math.round(waves * (24 + Math.random() * 14));
+    return Math.round(waves * (10 + Math.random() * 6));
   }
 
   function genLineup() {

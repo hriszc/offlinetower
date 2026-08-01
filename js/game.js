@@ -55,8 +55,10 @@ window.Game = (function () {
       grantTile('云', 'zhaoyun');
       run.tutorStep = 1;
     } else {
-      const twoChar = CFG.GENERALS.filter(g => g.chars.length === 2 && g.atk >= 12);
-      const gift = Rand.pick(twoChar);
+      // 赠字池收窄：2 字 + 射程 ≥3 + 基础输出 ≥10（曹操/赵云/周瑜），保证首将覆盖多路且能清怪；
+      // 近战武将（张飞/关羽/吕布）由玩家后续拼出，需前置站位拦截（帮助文档有说明）
+      const giftPool = CFG.GENERALS.filter(g => g.chars.length === 2 && g.rge >= 3 && g.atk * g.frq >= 10);
+      const gift = Rand.pick(giftPool);
       for (const c of gift.chars) grantTile(c, gift.id);
       UI.toast('军师赠字：「' + gift.name + '」字牌已备,快去拼字召唤！', 'gold');
     }
@@ -116,11 +118,17 @@ window.Game = (function () {
     const t = run.tiles[idx];
     if (!t) return;
     const slot = run.spell.findIndex(s => !s);
-    if (slot < 0) { UI.tip('拼字槽已满,先取回字牌'); return; }
+    if (slot < 0) { UI.tip('拼字槽已满,点槽位可取回字牌'); return; }
     run.spell[slot] = t;
     run.tiles.splice(idx, 1);
     UI.refresh();
     checkSummonable();
+    // 教学：首次放字 → 步骤 2（提示拼齐点击召唤）
+    if (run.firstGame && run.tutorStep === 1) {
+      run.tutorStep = 2;
+      paused = true;
+      UI.showTutor(run.tutorStep, { resume: true });
+    }
   }
   function spellClick(idx) {
     const t = run.spell[idx];
@@ -165,8 +173,8 @@ window.Game = (function () {
     } else {
       run.bench.push({ name: g.name, star: Math.max(1, saved.star), level: 1, exp: 0, kills: 0 });
       UI.toast('召唤成功！「' + g.name + '」(' + CFG.CLS_NAMES[g.cls] + ')', 'gold');
-      if (run.firstGame) {
-        run.tutorStep = Math.max(run.tutorStep, 4);
+      if (run.firstGame && run.tutorStep === 2) {
+        run.tutorStep = 3;
         paused = true;
         UI.showTutor(run.tutorStep, { resume: true });
       }
@@ -197,8 +205,8 @@ window.Game = (function () {
     if (battle.deploy(u, col, row)) {
       run.bench.splice(benchIdx, 1);
       UI.refresh();
-      if (run.firstGame && battle.units.length >= 1) {
-        run.tutorStep = Math.max(run.tutorStep, 5);
+      if (run.firstGame && run.tutorStep === 3) {
+        run.tutorStep = 4;
         paused = true;
         UI.showTutor(run.tutorStep, { resume: true });
       }
@@ -264,7 +272,8 @@ window.Game = (function () {
     battle.on('skillFx', (u, type, m, d) => UI.skillFx(u, type, m, d));
     battle.on('waveClear', w => {
       run.mantou += CFG.ECONOMY.waveClearMantou;
-      if (w % 3 === 0 && !battle.over) {
+      // 第 30 波通关在即,不再弹三选一（避免被结算弹窗覆盖丢弃）
+      if (w % 3 === 0 && w < CFG.MAX_WAVE && !battle.over) {
         paused = true;
         UI.showBoostPick();
       }
@@ -338,7 +347,7 @@ window.Game = (function () {
 
   /* ================= 广告（体力恢复,纯 IAA 唯一广告点） ================= */
   function watchAd() {
-    if (Save.adsLeft() <= 0) { UI.tip('今日广告次数已用完'); return; }
+    if (Save.adsLeft() <= 0) { UI.toast('今日广告次数已用完', 'red'); return; }
     UI.showAd(function () {
       Save.watchAd();
       UI.refreshMenu();

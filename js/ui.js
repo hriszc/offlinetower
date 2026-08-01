@@ -39,6 +39,10 @@ window.UI = (function () {
     $('#btn-recruit').addEventListener('click', () => Game.recruit());
     $('#btn-frag').addEventListener('click', () => Game.exchangeFrag());
     $('#btn-summon').addEventListener('click', () => Game.summon());
+    // 拼字槽：点击槽位取回字牌
+    document.querySelectorAll('.spell-cell').forEach((cell, i) => {
+      cell.addEventListener('click', () => Game.spellClick(i));
+    });
   }
 
   function showScreen(name) {
