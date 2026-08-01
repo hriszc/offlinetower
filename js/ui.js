@@ -18,9 +18,18 @@ window.UI = (function () {
   /* ================= 基础 ================= */
   function init() {
     bindStatic();
-    // 拖拽监听只需绑定一次
+    // 拖拽监听只需绑定一次;pointercancel 兜底（移动端手势被打断时清理 ghost/hint）
     window.addEventListener('pointermove', onDragMove);
     window.addEventListener('pointerup', onDragEnd);
+    window.addEventListener('pointercancel', onDragCancel);
+  }
+
+  function onDragCancel() {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (hoverHintEl) { hoverHintEl.remove(); hoverHintEl = null; }
+    if (d.ghost) { d.ghost.remove(); }
   }
 
   function bindStatic() {
@@ -106,7 +115,8 @@ window.UI = (function () {
     const el = $('#hud-opp');
     el.innerHTML = '<div class="avatar">' + opp.avatar + '</div>' +
       '<div style="min-width:0"><div class="opp-name">' + opp.nick + '</div>' +
-      '<div class="opp-info">坚持 ' + opp.waves + ' 波 · ' + fmtTime(opp.timeSec) + ' · 剩 ' + opp.adouLeft + ' ❤</div></div>' +
+      '<div class="opp-info">' + opp.rankName + ' · 坚持 ' + opp.waves + ' 波 · ' + fmtTime(opp.timeSec) + ' · 剩 ' + opp.adouLeft + ' ❤</div>' +
+      '<div class="opp-info">阵容:' + opp.lineup.slice(0, 4).join('·') + (opp.lineup.length > 4 ? '…' : '') + '</div></div>' +
       '<span class="opp-tag">' + opp.tag + '</span>';
   }
 
@@ -236,7 +246,7 @@ window.UI = (function () {
     // 武将
     const seen = {};
     battle.units.forEach((u, idx) => {
-      const uid = 'u' + (u._uid || (u._uid = ++unitIdSeq));
+      const uid = (u._uid || (u._uid = ++unitIdSeq));   // 纯数字,与 findUnit 的 _uid 类型一致
       seen[uid] = true;
       let el = unitEls[uid];
       if (!el) {

@@ -12,6 +12,7 @@ window.Engine = (function () {
       const t = CFG.MONSTER_TYPES[type];
       this.type = type; this.elite = elite; this.boss = boss;
       this.spd = 0.55 * t.spd * map.spdMul;
+      if (boss) this.spd *= 0.7;            // BOSS 血厚行缓（与 POW 校验口径一致）
       this.col = -0.3;                      // 出生在棋盘左侧外
       this.row = Rand.pick(map.rows);
       this.dead = false;
@@ -144,35 +145,34 @@ window.Engine = (function () {
     startNextWave() {
       this.wave++;
       const wc = CFG.waveConfig(this.wave);
-      // POW 约束：怪物总 POW ≤ 玩家 POW × 1.5（方案 §5.4），超出则削减数量；精英/BOSS 血量同生成一致
+      // POW 约束：怪物总 POW ≤ 玩家 POW × 1.5（方案 §5.4），超出则削减数量。
+      // 校验与生成共用同一份类型抽样与血量/速度口径（含地图系数与 BOSS 减速），避免低估。
       const playerPOW = this.units.reduce((s, u) => s + this.effAtk(u) * this.effFrq(u) * this.effRge(u) * u.baseTargets(), 0);
       let count = wc.count;
+      const types = [];
+      for (let i = 0; i < count; i++) types.push(Rand.pick(CFG.MONSTER_TYPES_KEYS));
       let wavePow = 0;
-      {
-        const types = [];
-        for (let i = 0; i < count; i++) types.push(Rand.pick(CFG.MONSTER_TYPES_KEYS));
-        for (const t of types) {
-          const mt = CFG.MONSTER_TYPES[t];
-          wavePow += this.monsterHp(t, wc, false) * (0.55 * mt.spd);
-        }
-        if (wc.bossCount) {   // BOSS 也计入校验（hp×12, spd×0.7）
-          const t = Rand.pick(CFG.MONSTER_TYPES_KEYS);
-          wavePow += this.monsterHp(t, wc, true) * (0.55 * CFG.MONSTER_TYPES[t].spd * 0.7);
-        }
-        if (playerPOW > 0 && wavePow > playerPOW * 1.5) {
-          const k = (playerPOW * 1.5) / wavePow;
-          count = Math.max(1, Math.floor(count * k));
-          this.powCut = true;
-        } else this.powCut = false;
+      for (const t of types) {
+        const mt = CFG.MONSTER_TYPES[t];
+        wavePow += this.monsterHp(t, wc, false) * (0.55 * mt.spd * this.map.spdMul);
       }
-      // 组装队列
-      this.queue = [];
-      for (let i = 0; i < count; i++) {
-        this.queue.push({ type: Rand.pick(CFG.MONSTER_TYPES_KEYS), elite: wc.elite, boss: false });
+      let bossType = null;
+      if (wc.bossCount) {   // BOSS 也计入校验（hp×12, spd×0.7, 地图系数）
+        bossType = Rand.pick(CFG.MONSTER_TYPES_KEYS);
+        const mt = CFG.MONSTER_TYPES[bossType];
+        wavePow += this.monsterHp(bossType, wc, true) * (0.55 * mt.spd * this.map.spdMul * 0.7);
       }
-      if (wc.bossCount) {
+      if (playerPOW > 0 && wavePow > playerPOW * 1.5) {
+        const k = (playerPOW * 1.5) / wavePow;
+        count = Math.max(1, Math.floor(count * k));
+        types.length = count;               // 削减后与队列生成保持一致
+        this.powCut = true;
+      } else this.powCut = false;
+      // 组装队列（复用校验时的抽样）
+      this.queue = types.map(t => ({ type: t, elite: wc.elite, boss: false }));
+      if (wc.bossCount && bossType) {
         this.queue.splice(Math.floor(this.queue.length * 0.6), 0,
-          { type: Rand.pick(CFG.MONSTER_TYPES_KEYS), elite: false, boss: true });
+          { type: bossType, elite: false, boss: true });
       }
       this.waveState = 'spawning';
       this.spawnTimer = 0.5;

@@ -86,6 +86,12 @@ function simulate(strategyName, opts) {
     return true;
   }
   function placeTile() {
+    // 槽满时先取回无关字（模拟真实玩家重组拼字槽）
+    const full = spell.filter(Boolean).length >= 3;
+    if (full) {
+      const slot = spell.findIndex(t => t);
+      if (slot >= 0) { tiles.push(spell[slot]); spell[slot] = null; }
+    }
     let best = null, bestMiss = 99, bestIdx = -1, bestSlot = -1;
     for (const g of CFG.GENERALS) {
       if (bench.some(b => b.name === g.name)) continue;
@@ -107,7 +113,7 @@ function simulate(strategyName, opts) {
   }
 
   let t = 0, turn = 0;
-  while (t < 600 && !battle.over && turn < 5000) {
+  while (t < 600 && !battle.over && turn < 12000) {  // 12000 turns ≈ 600s（与真实单局上限一致）
     turn++;
     const g = match();
     if (g && mantou >= CFG.ECONOMY.summonCost) {
@@ -142,10 +148,11 @@ assert(r1.summoned >= 1, '首局能召唤至少 1 将');
 assert(r1.battle.wave >= 2, `首局至少撑到第 2 波（实际 ${r1.battle.wave} 波）`);
 
 const N = 20;
-let minWave = 99, failFirst = 0, avgWave = 0;
+let minWave = 99, failFirst = 0, avgWave = 0, summoned2 = 0;
 for (let i = 0; i < N; i++) {
   const r = simulate('正常局#' + (i + 1), { gift: true });
   if (r.summoned < 1) { console.error('✗ 正常局未召唤出首将'); failures++; }
+  if (r.summoned >= 2) summoned2++;
   if (r.battle.wave < 2) failFirst++;
   minWave = Math.min(minWave, r.battle.wave);
   avgWave += r.battle.wave;
@@ -154,6 +161,9 @@ avgWave /= N;
 assert(failFirst === 0, `正常局 ${N} 局无一第 1 波崩盘（崩 ${failFirst} 局）`);
 assert(minWave >= 2, `正常局最低撑到第 ${minWave} 波（≥2）`);
 assert(avgWave >= 3, `正常局平均撑 ${avgWave.toFixed(1)} 波（≥3）`);
+// 第 2 将可达性：模拟器未用军备道具/三选一强化/主动卖血（真实玩家更强），故仅要求部分局能召唤第 2 将，作为构筑循环下限
+// 若此断言连续失败，说明「第 5 波危机」过紧，字谜召唤核心循环被经济卡死，需调 tilePool 加权或经济参数
+assert(summoned2 >= 2, `正常局 ${N} 局中 ${summoned2} 局召唤出第 2 将（≥2 局）`);
 
 console.log(failures === 0 ? '\n全部断言通过 ✔' : `\n${failures} 项断言失败 ✗`);
 process.exitCode = failures > 0 ? 1 : 0;

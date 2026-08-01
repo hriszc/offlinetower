@@ -228,7 +228,9 @@ window.Game = (function () {
     UI.refresh();
   }
   function findUnit(uid) {
-    return battle.units.find(u => u._uid === uid) || null;
+    // 类型归一：ui 层传入数字 _uid（防御历史字符串 'u1' 形态）
+    const n = typeof uid === 'string' ? Number(uid.replace('u', '')) : uid;
+    return battle.units.find(u => u._uid === n) || null;
   }
   function castUnit(uid) {
     const u = findUnit(uid);

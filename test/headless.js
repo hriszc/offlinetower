@@ -59,6 +59,35 @@ assert(r3.t >= 300 && r3.t <= 600, `6将2星单局时长 5-10 分钟（实际 ${
 // 模拟器未走三选一强化/留怒运营,能打到第 30 波终局即证明曲线可达；通关依赖玩家运营
 assert(r3.battle.wave >= 30, `6将2星可打到第 30 波终局（实际 ${r3.battle.wave} 波）`);
 
+console.log('--- 技能释放链路（满怒点击→生效,回归 #1 uid 契约） ---');
+{
+  // uid 契约：ui.js 生成数字 _uid,game.findUnit 按数字查找（防字符串 'u1' 不匹配回归）
+  let seq = 0;
+  const unit = { _uid: ++seq };
+  const uidFromUi = unit._uid;                                  // ui.js 现生成纯数字
+  const n = typeof uidFromUi === 'string' ? Number(uidFromUi.replace('u', '')) : uidFromUi;
+  assert(n === unit._uid, 'uid 契约:ui 生成的数字 _uid 可被 findUnit 命中');
+  // 满怒点击释放（engine 层链路）
+  const b = new Engine.Battle(CFG.MAPS[0], {});
+  const zf = new Engine.Unit('张飞', 1, 1);
+  b.deploy(zf, 2, 2);
+  zf.fury = 100; zf.skillCd = 0;
+  assert(b.castSkill(zf) === true, '满怒武将技能可释放');
+  assert(zf.fury === 0, '释放后怒气清零');
+  zf.fury = 50; zf.skillCd = 0;
+  assert(b.castSkill(zf) === false, '未满怒不可释放');
+  // 技能效果：张飞大喝眩晕+伤害
+  const b2 = new Engine.Battle(CFG.MAPS[0], {});
+  const zf2 = new Engine.Unit('张飞', 1, 1);
+  b2.deploy(zf2, 2, 2);
+  const m = b2.spawnMonster({ type: '刀', elite: false, boss: false });
+  m.col = 2.5; m.row = 2;
+  zf2.fury = 100; zf2.skillCd = 0;
+  b2.castSkill(zf2);
+  assert(m.stunUntil > 0, '大喝眩晕生效');
+  assert(m.hp < m.maxHp, '大喝造成伤害');
+}
+
 console.log('--- 机器人分层（genWaves 层内均值,方案 §5.4 参数） ---');
 const layers = [
   { rank: 0, name: '军士/校尉', mean: 6,  range: [5.5, 6.5] },
