@@ -1,0 +1,768 @@
+/* ============================================================
+ * UI：DOM 渲染、拖拽布阵、弹窗、特效（水墨文字风）
+ * ============================================================ */
+window.UI = (function () {
+  'use strict';
+  const CFG = window.CFG, Save = window.Save, Rand = window.Rand;
+  const $ = s => document.querySelector(s);
+
+  let boardEl = null, adouEl = null;
+  let monsterEls = {};       // monsterSeq -> el
+  let unitEls = {};          // unit id -> el
+  let unitIdSeq = 0;
+  let toastTimer = 0;
+  let drag = null;           // 拖拽状态
+  let hintEls = [];
+  let hoverHintEl = null;
+
+  /* ================= 基础 ================= */
+  function init() {
+    bindStatic();
+    benchZoneEl = $('#bench');
+    // 拖拽监听只需绑定一次;pointercancel 兜底（移动端手势被打断时清理 ghost/hint）
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragEnd);
+    window.addEventListener('pointercancel', onDragCancel);
+  }
+
+  function onDragCancel() {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (hoverHintEl) { hoverHintEl.remove(); hoverHintEl = null; }
+    if (d.ghost) { d.ghost.remove(); }
+    if (benchZoneEl) benchZoneEl.classList.remove('bench-recalling');
+  }
+
+  function bindStatic() {
+    $('#btn-battle').addEventListener('click', () => Game.startBattle());
+    $('#btn-gallery').addEventListener('click', showGallery);
+    $('#btn-weapon').addEventListener('click', showWeaponPanel);
+    $('#btn-help').addEventListener('click', () => showScreen('help'));
+    document.querySelectorAll('.btn-back').forEach(b => {
+      b.addEventListener('click', () => {
+        const t = b.dataset.back;
+        if (t === 'menu') Game.backToMenu();
+      });
+    });
+    $('#btn-quit').addEventListener('click', () => {
+      if (confirm('确定撤退回主城吗？本局成绩不计')) Game.quitToMenu();
+    });
+    $('#btn-recruit').addEventListener('click', () => Game.recruit());
+    $('#btn-frag').addEventListener('click', () => Game.exchangeFrag());
+    $('#btn-summon').addEventListener('click', () => Game.summon());
+    // 拼字槽：点击槽位取回字牌
+    document.querySelectorAll('.spell-cell').forEach((cell, i) => {
+      cell.addEventListener('click', () => Game.spellClick(i));
+    });
+  }
+
+  function showScreen(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+    $('#screen-' + name).classList.remove('hidden');
+  }
+
+  /* ================= 菜单 ================= */
+  function enterMenu() {
+    showScreen('menu');
+    refreshMenu();
+  }
+  function refreshMenu() {
+    const d = Save.load();
+    const rank = Save.rank();
+    const prog = Save.rankProgress();
+    $('#menu-rank-badge').textContent = rank.name;
+    $('#menu-rank-name').textContent = rank.name;
+    $('#menu-rank-bar').style.width = prog.pct + '%';
+    $('#menu-rank-progress').textContent = (prog.idx >= CFG.RANKS.length - 1) ? '已至巅峰' :
+      (d.score - prog.cur) + ' / ' + (prog.next - prog.cur) + ' 积分 → ' + CFG.RANKS[prog.idx + 1].name;
+    $('#menu-coins').textContent = d.coins;
+    $('#menu-stamina').textContent = Save.stamina();
+    $('#menu-wl').textContent = d.today.wins + '-' + d.today.loses + '(' + Save.winRate() + '%)';
+    const map = Save.mapOfToday();
+    $('#menu-map').textContent = '今日地图:' + map.name + ' · ' + map.desc +
+      (Save.items().length ? ' · 道具:' + Save.items().map(id => CFG.ITEM_BOOSTS.find(x => x.id === id).name).join('/') : '');
+  }
+
+  /* ================= 进入对局 ================= */
+  function enterBattle(run, battle) {
+    showScreen('battle');
+    buildBoard();
+    buildHudOpp(run.opp);
+    refresh();
+  }
+
+  function buildBoard() {
+    boardEl = $('#board');
+    boardEl.innerHTML = '';
+    // 网格线
+    for (let c = 1; c < Game.BOARD_COLS; c++) {
+      const d = document.createElement('div');
+      d.className = 'board-grid-line v';
+      d.style.left = (c / Game.BOARD_COLS * 100) + '%';
+      boardEl.appendChild(d);
+    }
+    for (let r = 1; r < Game.BOARD_ROWS; r++) {
+      const d = document.createElement('div');
+      d.className = 'board-grid-line h';
+      d.style.top = (r / Game.BOARD_ROWS * 100) + '%';
+      boardEl.appendChild(d);
+    }
+    // 阿斗
+    adouEl = document.createElement('div');
+    adouEl.id = 'adou-stand';
+    boardEl.appendChild(adouEl);
+    monsterEls = {}; unitEls = {}; unitIdSeq = 0;
+  }
+
+  function buildHudOpp(opp) {
+    const el = $('#hud-opp');
+    el.innerHTML = '<div class="avatar">' + opp.avatar + '</div>' +
+      '<div style="min-width:0"><div class="opp-name">' + opp.nick + '</div>' +
+      '<div class="opp-info">' + opp.rankName + ' · 坚持 ' + opp.waves + ' 波 · ' + fmtTime(opp.timeSec) + ' · 剩 ' + opp.adouLeft + ' ❤</div>' +
+      '<div class="opp-info">阵容:' + opp.lineup.slice(0, 4).join('·') + (opp.lineup.length > 4 ? '…' : '') + '</div></div>' +
+      '<span class="opp-tag">' + opp.tag + '</span>';
+  }
+
+  /* ================= 刷新静态区 ================= */
+  function refresh() {
+    if (Game.state !== 'battle') return;
+    const run = Game.run, battle = Game.battle;
+    if (!run || !battle) return;
+    refreshHud(run, battle);
+    refreshSpell(run);
+    refreshHand(run);
+    refreshBench(run, battle);
+    refreshUnits(run, battle);
+    // 征兵按钮
+    let cost = CFG.ECONOMY.recruitBase + CFG.ECONOMY.recruitStep * run.drawCount;
+    $('#recruit-cost').textContent = cost;
+    $('#btn-recruit').disabled = run.mantou < cost;
+    // 碎片
+    $('#frag-count').textContent = run.frags;
+    $('#btn-frag').disabled = run.frags < CFG.ECONOMY.fragExchange;
+    Game.checkSummonable();
+  }
+
+  function refreshHud(run, battle) {
+    $('#hud-wave').textContent = Math.min(battle.wave, CFG.MAX_WAVE);
+    $('#hud-time').textContent = fmtTime(Math.floor(battle.time));
+    $('#hud-mantou').textContent = run.mantou;
+    const hearts = $('#hud-hearts');
+    let h = '';
+    for (let i = 0; i < battle.adou.maxHp; i++) {
+      h += '<span class="heart' + (i < battle.adou.hp ? '' : ' lost') + '">❤</span>';
+    }
+    hearts.innerHTML = h;
+    // 阿斗本体
+    if (adouEl) {
+      adouEl.style.left = ((6.5) / Game.BOARD_COLS * 100) + '%';
+      adouEl.style.top = ((Game.ADOU_ROW + 0.5) / Game.BOARD_ROWS * 100) + '%';
+      adouEl.innerHTML = '斗<div class="adou-hp">' + '❤'.repeat(battle.adou.hp) + '</div>';
+      adouEl.classList.toggle('dead', battle.adou.hp <= 0);
+    }
+    // 生效中的团队 buff（曹操/刘备/孙权加成,含剩余秒数）
+    const bub = $('#hud-buffs');
+    const tb = battle.teamBuffs;
+    let chips = '';
+    if (tb.until > battle.time) {
+      const left = Math.ceil(tb.until - battle.time);
+      if (tb.atkAdd > 0) chips += '<span class="buff-chip">攻击+' + Math.round(tb.atkAdd * 100) + '% ' + left + 's</span>';
+      if (tb.frqAdd > 0) chips += '<span class="buff-chip">攻速+' + Math.round(tb.frqAdd * 100) + '% ' + left + 's</span>';
+    }
+    bub.innerHTML = chips;
+    // 按钮状态实时刷新（战斗中获得资源后可用）
+    let cost = CFG.ECONOMY.recruitBase + CFG.ECONOMY.recruitStep * run.drawCount;
+    $('#recruit-cost').textContent = cost;
+    $('#btn-recruit').disabled = run.mantou < cost;
+    $('#frag-count').textContent = run.frags;
+    $('#btn-frag').disabled = run.frags < CFG.ECONOMY.fragExchange;
+    Game.checkSummonable();
+  }
+
+  function refreshSpell(run) {
+    const cells = document.querySelectorAll('.spell-cell');
+    cells.forEach((cell, i) => {
+      const t = run.spell[i];
+      cell.className = 'spell-cell' + (t ? ' filled' : '');
+      cell.textContent = t ? t.char : '';
+      if (t) {
+        cell.innerHTML = t.char + '<span class="tile-star">' + t.quality + '</span>';
+      }
+    });
+    const matched = matchChars(run);
+    if (matched) cells.forEach(c => c.classList.add('matched'));
+  }
+  function matchChars(run) {
+    const chars = run.spell.filter(Boolean).map(t => t.char).sort().join('');
+    if (!chars) return null;
+    return CFG.GENERALS.find(g => g.chars.slice().sort().join('') === chars) || null;
+  }
+
+  function refreshHand(run) {
+    const el = $('#hand-tiles');
+    el.innerHTML = '';
+    run.tiles.forEach((t, i) => {
+      const d = document.createElement('div');
+      d.className = 'tile';
+      d.innerHTML = t.char + '<span class="tile-' + t.quality.toLowerCase() + '">' + t.quality + '</span>';
+      d.addEventListener('pointerdown', ev => {
+        ev.stopPropagation();
+        Game.tileClick(i);
+      });
+      el.appendChild(d);
+    });
+  }
+
+  function refreshBench(run, battle) {
+    const el = $('#bench');
+    el.innerHTML = '';
+    run.bench.forEach((b, i) => {
+      const g = CFG.GENERALS.find(x => x.name === b.name);
+      const d = makeGenCard(g, b);
+      d.classList.add('draggable');
+      d.addEventListener('pointerdown', ev => {
+        if (ev.button !== 0) return;
+        ev.preventDefault();
+        startDrag({ type: 'bench', idx: i, el: d, ev: ev });
+      });
+      el.appendChild(d);
+    });
+  }
+
+  function makeGenCard(g, info) {
+    const d = document.createElement('div');
+    d.className = 'gen-card ' + g.quality.toLowerCase();
+    // 无星级：板凳卡显示等级,图鉴卡显示收集状态
+    const sub = info && info.owned ? '已收集' : ('Lv.' + (info && info.level || 1));
+    d.innerHTML =
+      '<div class="gc-name">' + g.name + '</div>' +
+      '<div class="gc-cls">' + CFG.CLS_NAMES[g.cls] + (g.quality === 'SSR' ? ' · 传奇' : ' · 史诗') + '</div>' +
+      '<div class="gc-lv">' + sub + '</div>' +
+      '<div class="gc-skill">技:' + g.skill.name + '</div>';
+    return d;
+  }
+
+  /* ================= 棋盘单位 ================= */
+  function refreshUnits(run, battle) {
+    // 武将
+    const seen = {};
+    battle.units.forEach((u, idx) => {
+      const uid = (u._uid || (u._uid = ++unitIdSeq));   // 纯数字,与 findUnit 的 _uid 类型一致
+      seen[uid] = true;
+      let el = unitEls[uid];
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'unit player';
+        el.dataset.uid = uid;
+        const face = document.createElement('div');
+        face.className = 'u-face';
+        el.appendChild(face);
+        const cd = document.createElement('div');
+        cd.className = 'u-cd';
+        cd.innerHTML = '<i></i>';
+        el.appendChild(cd);
+        el.addEventListener('pointerdown', ev => {
+          if (ev.button !== 0) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          // 技能自动释放,无点击交互：按下即拖拽（换位 / 拖回板凳召回）
+          startDrag({ type: 'unit', uid: uid, el: el, ev: ev });
+        });
+        boardEl.appendChild(el);
+        unitEls[uid] = el;
+      }
+      el.style.left = ((u.col + 0.5) / Game.BOARD_COLS * 100) + '%';
+      el.style.top = ((u.row + 0.5) / Game.BOARD_ROWS * 100) + '%';
+      el.style.width = (74 / Game.BOARD_COLS) + '%';
+      const face = el.querySelector('.u-face');
+      face.innerHTML = u.gen.name;
+      face.style.background = u.gen.quality === 'SSR' ? 'linear-gradient(160deg,#b8860b,#8a5a00)' : 'linear-gradient(160deg,#5a6f9e,#3f5280)';
+      face.style.fontSize = u.gen.name.length >= 3 ? 'clamp(11px,1.6vw,17px)' : 'clamp(13px,2.2vw,24px)';
+      // 技能冷却显示：冷却就绪满格高亮（自动释放前的蓄势提示）,冷却中显示剩余比例
+      const cdI = el.querySelector('.u-cd i');
+      const cdTotal = 15 * battle.skillCdMult();
+      cdI.style.width = (100 - Math.max(0, u.skillCd) / cdTotal * 100) + '%';
+      el.classList.toggle('ready-cd', u.skillCd <= 0 && battle.monsters.length > 0);
+      el.classList.toggle('attacking', !!u.attacking && battle.time < u.attacking);
+      const lv = el.querySelector('.u-lv');
+      if (u.level > 1) {
+        if (!lv) { const s = document.createElement('div'); s.className = 'u-lv'; el.appendChild(s); }
+        el.querySelector('.u-lv').textContent = u.level;
+      } else if (lv) lv.remove();
+    });
+    // 清理撤下的武将
+    for (const uid in unitEls) {
+      if (!seen[uid]) { unitEls[uid].remove(); delete unitEls[uid]; }
+    }
+    // 怪物
+    const mseen = {};
+    battle.monsters.forEach(m => {
+      const id = m._id || (m._id = Game.monsterSeq());
+      mseen[id] = true;
+      let el = monsterEls[id];
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'unit monster';
+        const face = document.createElement('div');
+        face.className = 'u-face';
+        el.appendChild(face);
+        const hp = document.createElement('div');
+        hp.className = 'u-hp';
+        hp.innerHTML = '<i></i>';
+        el.appendChild(hp);
+        boardEl.appendChild(el);
+        monsterEls[id] = el;
+      }
+      el.style.left = ((m.col + 0.5) / Game.BOARD_COLS * 100) + '%';
+      el.style.top = ((m.row + 0.5) / Game.BOARD_ROWS * 100) + '%';
+      el.style.width = (m.boss ? 13 : 9.5) + '%';
+      const face = el.querySelector('.u-face');
+      face.textContent = m.boss ? '帅' : (m.elite ? CFG.MONSTER_TYPES[m.type].label : CFG.MONSTER_TYPES[m.type].label);
+      face.className = 'u-face' + (m.boss ? ' boss' : m.elite ? ' elite' : '');
+      el.querySelector('.u-hp i').style.width = Math.max(0, m.hp / m.maxHp * 100) + '%';
+    });
+    for (const id in monsterEls) {
+      if (!mseen[id]) { monsterEls[id].remove(); delete monsterEls[id]; }
+    }
+  }
+
+  /* ================= 拖拽 ================= */
+  function boardPos(ev) {
+    const r = boardEl.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width * Game.BOARD_COLS;
+    const y = (ev.clientY - r.top) / r.height * Game.BOARD_ROWS;
+    return { col: Math.max(0, Math.min(Game.BOARD_COLS - 1, Math.floor(x))),
+             row: Math.max(0, Math.min(Game.BOARD_ROWS - 1, Math.floor(y))),
+             overBoard: ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom };
+  }
+
+  function startDrag(info) {
+    const srcRect = info.el.getBoundingClientRect();
+    drag = {
+      type: info.type, idx: info.idx, uid: info.uid,
+      startX: info.ev.clientX, startY: info.ev.clientY,
+      moved: false,
+      ghost: null
+    };
+    // 克隆源元素作 ghost 跟随指针
+    const g = info.el.cloneNode(true);
+    g.style.position = 'fixed';
+    g.style.left = srcRect.left + 'px';
+    g.style.top = srcRect.top + 'px';
+    g.style.width = srcRect.width + 'px';
+    g.style.zIndex = 99;
+    g.style.pointerEvents = 'none';
+    g.classList.add('ghosting');
+    document.body.appendChild(g);
+    drag.ghost = g;
+  }
+
+  function onDragMove(ev) {
+    if (!drag) return;
+    const dx = ev.clientX - drag.startX, dy = ev.clientY - drag.startY;
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 8) drag.moved = true;
+    if (drag.moved) {
+      const p = boardPos(ev);
+      if (drag.ghost) {
+        drag.ghost.style.left = (ev.clientX - 30) + 'px';
+        drag.ghost.style.top = (ev.clientY - 30) + 'px';
+      }
+      // 高亮格子 / 板凳召回提示（判定区与 onDragEnd 统一）
+      updateHoverHint(p, ev);
+      benchZoneEl.classList.toggle('bench-recalling', drag.type === 'unit' && overBenchZone(ev));
+    }
+  }
+
+  // 板凳召回区判定（move 与 end 共用同一口径）
+  function overBenchZone(ev) {
+    const r = $('#bench').getBoundingClientRect();
+    return ev.clientY > r.top - 20 && ev.clientY < r.bottom + 20 &&
+      ev.clientX > r.left - 40 && ev.clientX < r.right + 40;
+  }
+  let benchZoneEl = null;
+
+  function updateHoverHint(p, ev) {
+    if (!hoverHintEl) {
+      hoverHintEl = document.createElement('div');
+      hoverHintEl.className = 'cell-hint';
+      boardEl.appendChild(hoverHintEl);
+    }
+    // 结算后 battle 可能为 null：不显示格子提示（game 侧已判空兜底）
+    if (!Game.battle) { hoverHintEl.style.display = 'none'; return; }
+    const isUnitRecall = drag.type === 'unit' && overBenchZone(ev);
+    if (isUnitRecall) {
+      // 拖武将到板凳区：提示可召回（金色,与"可部署"同义不同位置）
+      hoverHintEl.style.display = 'none';
+      return;
+    }
+    if (p.overBoard) {
+      hoverHintEl.style.display = 'block';
+      hoverHintEl.style.left = ((p.col + 0.5) / Game.BOARD_COLS * 100) + '%';
+      hoverHintEl.style.top = ((p.row + 0.5) / Game.BOARD_ROWS * 100) + '%';
+      hoverHintEl.style.width = (60 / Game.BOARD_COLS) + '%';
+      hoverHintEl.style.aspectRatio = '1';
+      hoverHintEl.style.transform = 'translate(-50%,-50%)';
+      const ok = Game.battle.canPlace(p.col, p.row);
+      hoverHintEl.classList.toggle('ok', ok);
+      hoverHintEl.classList.toggle('bad', !ok);
+    } else hoverHintEl.style.display = 'none';
+  }
+
+  function onDragEnd(ev) {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (hoverHintEl) { hoverHintEl.remove(); hoverHintEl = null; }
+    if (d.ghost) { d.ghost.remove(); }
+    benchZoneEl.classList.remove('bench-recalling');
+    if (!d.moved) {
+      // 技能自动释放：未移动的武将点击不触发任何操作（仅拖拽有效）
+      return;
+    }
+    const p = boardPos(ev);
+    const inBench = overBenchZone(ev);
+    if (d.type === 'bench') {
+      if (p.overBoard) Game.placeUnit(d.idx, p.col, p.row);
+    } else if (d.type === 'unit') {
+      if (inBench) Game.recallUnit(d.uid);
+      else if (p.overBoard) Game.moveUnit(d.uid, p.col, p.row);
+    }
+  }
+
+  /* ================= 特效 ================= */
+  function fxPos(m) {
+    return { left: ((m.col + 0.5) / Game.BOARD_COLS * 100) + '%',
+             top: ((m.row + 0.5) / Game.BOARD_ROWS * 100) + '%' };
+  }
+  function dmgFx(m, dmg, crit) {
+    if (!boardEl) return;
+    const p = fxPos(m);
+    const el = document.createElement('div');
+    el.className = 'dmg-float' + (crit ? ' crit' : '');
+    el.textContent = dmg;
+    el.style.left = p.left; el.style.top = p.top;
+    boardEl.appendChild(el);
+    setTimeout(() => el.remove(), 950);
+  }
+  function boltFx(m) {
+    if (!boardEl) return;
+    const p = fxPos(m);
+    const el = document.createElement('div');
+    el.className = 'bolt';
+    el.style.left = p.left; el.style.top = p.top;
+    el.style.setProperty('--rot', (Math.random() * 60 - 30) + 'deg');
+    boardEl.appendChild(el);
+    setTimeout(() => el.remove(), 500);
+  }
+  function skillFx(u, type, m, d) {
+    if (!boardEl) return;
+    const center = { left: ((u.col + 0.5) / Game.BOARD_COLS * 100) + '%',
+                     top: ((u.row + 0.5) / Game.BOARD_ROWS * 100) + '%' };
+    const spawn = (cls, pos, delay) => {
+      const el = document.createElement('div');
+      el.className = cls;
+      el.style.left = pos.left; el.style.top = pos.top;
+      el.style.animationDelay = delay + 's';
+      boardEl.appendChild(el);
+      setTimeout(() => el.remove(), 700 + delay * 1000);
+    };
+    if (type === 'aoe' || type === 'single' || type === 'stun') spawn('boom', m ? fxPos(m) : center, 0);
+    if (type === 'dash') for (let i = 0; i < 3; i++) spawn('boom', { left: center.left, top: center.top }, i * 0.08);
+    if (type === 'dot') for (let i = 0; i < 8; i++) spawn('flame', { left: (8 + Math.random() * 84) + '%', top: (8 + Math.random() * 84) + '%' }, i * 0.1);
+  }
+  function adouHurt() {
+    if (!adouEl) return;
+    adouEl.classList.remove('hurt');
+    void adouEl.offsetWidth;
+    adouEl.classList.add('hurt');
+  }
+
+  /* ================= 提示 ================= */
+  function tip(msg) {
+    $('#tip-line').textContent = msg;
+  }
+  function toast(msg, kind) {
+    let el = $('#toast-el');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'toast-el';
+      el.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:60;' +
+        'background:rgba(30,22,16,.92);color:#f7eccb;padding:10px 22px;border-radius:24px;' +
+        'font-size:16px;border:2px solid #c9a227;box-shadow:0 4px 14px rgba(0,0,0,.4);pointer-events:none;' +
+        'transition:opacity .3s;text-align:center;max-width:80%;';
+      document.body.appendChild(el);
+    }
+    if (kind === 'gold') el.style.borderColor = '#c9a227';
+    else if (kind === 'red') el.style.borderColor = '#a8342a';
+    el.textContent = msg;
+    el.style.opacity = '1';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 1800);
+  }
+  function hint(msg) {
+    let el = $('#hint-el');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'hint-el';
+      el.style.cssText = 'position:fixed;bottom:150px;left:50%;transform:translateX(-50%);z-index:40;' +
+        'background:rgba(255,255,255,.85);color:#a8342a;padding:6px 16px;border-radius:14px;' +
+        'font-size:14px;border:1px solid #a8342a;pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => el.remove(), 2200);
+  }
+  let hintTimer = 0;
+
+  /* ================= 弹窗 ================= */
+  function modal(html, opts) {
+    opts = opts || {};
+    const mask = $('#modal-mask');
+    const box = $('#modal-content');
+    box.innerHTML = html;
+    mask.classList.remove('hidden');
+    box.querySelectorAll('[data-close]').forEach(c => {
+      c.addEventListener('click', () => { closeModal(); if (opts.onClose) opts.onClose(); });
+    });
+    return closeModal;
+  }
+  function closeModal() {
+    $('#modal-mask').classList.add('hidden');
+  }
+
+  /* 独立弹窗层：与主弹窗（#modal-content）共存叠加,不被 innerHTML 覆盖销毁 */
+  function modalLayer(html, opts) {
+    opts = opts || {};
+    const mask = document.createElement('div');
+    mask.className = 'modal modal-layer';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.innerHTML = html;
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+    mask.close = () => mask.remove();
+    mask.querySelectorAll('[data-close]').forEach(c => {
+      c.addEventListener('click', () => { mask.close(); if (opts.onClose) opts.onClose(); });
+    });
+    return mask;
+  }
+
+  /* 道具三选一已删除（唯一道具层 = 局间道具,见 showItemReward） */
+
+  /* 体力不足 */
+  function showStaminaModal() {
+    modal('<h2>体力不足</h2>' +
+      '<p>每局消耗 1 点体力,每日上限 30 点。<br>当前体力:' + Save.stamina() + '/30</p>' +
+      '<div class="choice-grid">' +
+      '<button class="choice-item" data-act="ad"><div class="ci-title">📺 看广告恢复 +10 体力</div><div class="ci-desc">今日剩余 ' + Save.adsLeft() + ' 次(纯 IAA,无充值)</div></button>' +
+      '<button class="choice-item" data-act="back"><div class="ci-title">返回主城</div><div class="ci-desc">明日体力自动恢复</div></button>' +
+      '</div>');
+    $('#modal-content').querySelectorAll('[data-act]').forEach(b => {
+      b.addEventListener('click', () => {
+        if (b.dataset.act === 'ad') Game.watchAd();
+        else { closeModal(); Game.backToMenu(); }
+      });
+    });
+  }
+
+  /* 广告（模拟播放 3 秒） */
+  function showAd(done) {
+    let t = 3;
+    modal('<h2>📺 激励视频</h2>' +
+      '<div class="ad-box"><div class="ad-title">模拟广告</div>' +
+      '<div class="ad-count" id="ad-count">3</div>' +
+      '<div class="ad-note">开发版为模拟播放;上线接入平台激励视频后,看完即恢复体力</div></div>' +
+      '<p>看完全程 +10 体力(每日 5 次)</p>');
+    const iv = setInterval(() => {
+      t--;
+      const c = $('#ad-count');
+      if (c) c.textContent = t;
+      if (t <= 0) {
+        clearInterval(iv);
+        closeModal();
+        if (done) done();
+        refreshMenu();
+      }
+    }, 1000);
+  }
+
+  /* 结算 */
+  function showSettle(r) {
+    const win = r.verdict === 'win', draw = r.verdict === 'draw';
+    const label = win ? '胜利' : (draw ? '平局' : '惜败');
+    const stars = '<span class="star-row">' +
+      [1, 2, 3].map(i => '<span class="' + (i <= r.stars ? 'on' : 'off') + '">★</span>').join('') + '</span>';
+    const mePct = Math.min(100, Math.round(r.myWaves / Math.max(r.opp.waves, r.myWaves) * 100));
+    modal('<h2 class="settle-result ' + r.verdict + '">' + label + '</h2>' +
+      '<p>坚持 <b>' + r.myWaves + '</b> 波 · ' + fmtTime(r.myTime) + ' · 阿斗剩 ' + r.myAdou + ' ❤</p>' +
+      '<div class="compare-bar">' +
+      '<div class="cb-side">你<br><b>' + r.myWaves + '</b>波</div>' +
+      '<div class="cb-track"><div class="cb-fill me" style="width:' + mePct + '%"></div>' +
+      '<div class="cb-fill opp" style="width:' + (100 - mePct) + '%"></div></div>' +
+      '<div class="cb-side">' + r.opp.nick + '<br><b>' + r.opp.waves + '</b>波</div>' +
+      '</div>' +
+      stars +
+      '<div class="reward-line">蜜獾币 <b>+' + r.coins + '</b> · 军衔积分 <b>+' + r.score + '</b></div>' +
+      (r.isFirst ? '<p style="color:#7c2118">首战完成！教学结束,此后按正常规则开局</p>' : '') +
+      '<div><button class="btn btn-primary" data-close data-again>再来一局</button>' +
+      '<button class="btn btn-secondary" data-close data-menu>回主城</button></div>');
+    const box = $('#modal-content');
+    box.querySelector('[data-again]').addEventListener('click', () => Game.startBattle());
+    box.querySelector('[data-menu]').addEventListener('click', () => Game.backToMenu());
+  }
+
+  /* 引导 */
+  function showTutor(step, opts) {
+    opts = opts || {};
+    const steps = {
+      1: { t: '首战教学 · 拼字召唤', b: '<b>字牌</b>已送你「赵」「云」,点击下方字牌放入拼字槽', a: '▼' },
+      2: { t: '首战教学 · 拼字召唤', b: '拼字槽凑齐 <b>赵+云</b>,点亮「召唤」按钮并点击,即可召唤 <b>赵云</b>', a: '▼' },
+      3: { t: '首战教学 · 布阵', b: '召唤出的武将会出现在下方武将栏。<b>按住武将拖到棋盘</b>布阵,越靠前越早接敌', a: '▼' },
+      4: { t: '首战教学 · 作战', b: '武将自动攻击,<b>技能冷却结束自动释放</b>;攻击命中积累局内成长自动升级。守住阿斗,比对手坚持更久！', a: '▶ 开战' }
+    };
+    const s = steps[Math.min(step, 4)];
+    if (!s) return;
+    modal('<h2>' + s.t + '</h2>' +
+      '<div class="tutor-step"><div class="tutor-arrow">' + s.a + '</div><p>' + s.b + '</p></div>' +
+      '<div><button class="btn btn-primary" data-close>知道了</button></div>',
+      opts.resume ? { onClose: () => Game.resume() } : null);
+  }
+
+  /* ================= 图鉴 ================= */
+  function showGallery() {
+    showScreen('gallery');
+    const grid = $('#gallery-grid');
+    grid.innerHTML = '';
+    let owned = 0;
+    CFG.GENERALS.forEach(g => {
+      const saved = Save.load().generals[g.name];
+      const card = makeGenCard(g, { owned: !!saved, level: 1 });
+      if (saved) { owned++; card.querySelector('.gc-name').style.color = '#7c2118'; }
+      else {
+        card.style.filter = 'grayscale(.85)';
+        card.classList.add('not-owned');
+      }
+      grid.appendChild(card);
+    });
+    $('#gallery-count').textContent = owned + '/10 已收集';
+  }
+
+  /* ================= 局间道具（每局结束 3 选 1,最多 6 个、可替换） ================= */
+  function showItemReward() {
+    const list = Save.items();
+    const full = list.length >= CFG.ITEM_BOOST_MAX;
+    const pool = CFG.ITEM_BOOSTS.filter(b => !list.includes(b.id));
+    const picks = [];
+    while (picks.length < 3 && pool.length) {
+      picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    }
+    const listHtml = list.length
+      ? '<div class="reward-line">当前道具(' + list.length + '/' + CFG.ITEM_BOOST_MAX + '):' +
+        list.map(id => { const b = CFG.ITEM_BOOSTS.find(x => x.id === id); return '<b>' + b.name + '</b>'; }).join(' ') + '</div>'
+      : '<div class="reward-line">道具栏(0/' + CFG.ITEM_BOOST_MAX + ')</div>';
+    // 独立弹窗层叠加在结算弹窗之上（不覆盖销毁结算按钮）
+    const closeLayer = modalLayer('<h2>局间道具</h2>' +
+      '<p>每局结束三选一,最多 6 个、可替换</p>' +
+      listHtml +
+      '<div class="choice-grid">' +
+      picks.map(b => '<button class="choice-item" data-pick="' + b.id + '">' +
+        '<div class="ci-title">' + b.name + '</div><div class="ci-desc">' + b.desc + '</div></button>').join('') +
+      '<button class="choice-item" data-pick="__skip__"><div class="ci-title">放弃</div><div class="ci-desc">暂不领取</div></button>' +
+      '</div>');
+    closeLayer.querySelectorAll('[data-pick]').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.dataset.pick;
+        if (id === '__skip__') { closeLayer.close(); return; }
+        if (list.length >= CFG.ITEM_BOOST_MAX) {
+          // 满 6 个：先选要替换的旧道具
+          closeLayer.close();
+          showItemReplace(id);
+        } else {
+          Game.pickRewardItem(id);
+          closeLayer.close();
+          UI.toast('获得局间道具「' + CFG.ITEM_BOOSTS.find(x => x.id === id).name + '」', 'gold');
+        }
+      });
+    });
+  }
+  function showItemReplace(newId) {
+    const list = Save.items();
+    const closeLayer = modalLayer('<h2>替换道具</h2>' +
+      '<p>道具栏已满,选择要替换的旧道具</p>' +
+      '<div class="choice-grid">' +
+      list.map(id => { const b = CFG.ITEM_BOOSTS.find(x => x.id === id);
+        return '<button class="choice-item" data-replace="' + id + '">' +
+          '<div class="ci-title">' + b.name + '</div><div class="ci-desc">' + b.desc + '</div></button>'; }).join('') +
+      '<button class="choice-item" data-replace="__cancel__"><div class="ci-title">取消</div></button>' +
+      '</div>');
+    closeLayer.querySelectorAll('[data-replace]').forEach(b => {
+      b.addEventListener('click', () => {
+        const oldId = b.dataset.replace;
+        if (oldId === '__cancel__') { closeLayer.close(); return; }
+        if (Game.replaceRewardItem(newId, oldId)) {   // 参数序:新道具在前,旧道具在后（与 game 签名一致）
+          UI.toast('已用「' + CFG.ITEM_BOOSTS.find(x => x.id === newId).name + '」替换「' + CFG.ITEM_BOOSTS.find(x => x.id === oldId).name + '」', 'gold');
+        }
+        closeLayer.close();
+      });
+    });
+  }
+
+  /* ================= 武器面板（兵器库 · 8 合 1 精炼,图鉴 v1.2 §4） ================= */
+  function showWeaponPanel() {
+    const ws = Save.load().weapons || {};
+    const rows = CFG.WEAPONS.map(w => {
+      const info = ws[w.general] || { q: 0, n: 0 };
+      const qd = CFG.WEAPON_QUALITIES[info.q];
+      const gold = info.q >= CFG.WEAPON_QUALITIES.length - 1;
+      const canRefine = info.n >= CFG.WEAPON_REFINE && !gold;
+      const mainTxt = w.main === 'atk' ? '攻击 +' + Math.round(qd.atk * 100) + '%' : '生命 +' + Math.round(qd.hp * 100) + '%';
+      const subTxt = w.sub === 'frq' ? '攻速 +' + Math.round(qd.frq * 100) + '%' : (w.sub === 'rge' ? '范围 +' + qd.rge + ' 格' : '生命 +' + Math.round(qd.hp * 100) + '%');
+      return '<div class="weapon-row">' +
+        '<div class="wp-info"><div class="wp-name">' + w.name + '<span class="wp-qual q' + info.q + '">' + qd.name + '</span></div>' +
+        '<div class="wp-gen">' + w.general + ' · ' + mainTxt + ' / ' + subTxt + '</div></div>' +
+        '<div class="wp-ops">' +
+        '<span class="wp-mat">素材 ' + info.n + '/' + CFG.WEAPON_REFINE + '</span>' +
+        (gold ? '<span class="wp-gold">金·毕业</span>' :
+          '<button class="btn btn-sm' + (canRefine ? ' btn-gold' : '') + '" data-refine="' + w.general + '"' + (canRefine ? '' : ' disabled') + '>精炼</button>') +
+        '</div></div>';
+    }).join('');
+    modal('<h2>兵器库</h2>' +
+      '<p>对局随机掉落当前上阵武将的专属武器;<b>8 件同名同品质 → 高 1 品质</b>(白→绿→蓝→紫→金,金毕业)。武器局外保留,装配即生效。</p>' +
+      '<div class="weapon-list">' + rows + '</div>' +
+      '<p style="font-size:13px;color:var(--ink-soft)">品质:白 +3%攻击/+5%生命 · 绿 +6%/+9% · 蓝 +10%/+14% · 紫 +15%/+20% · 金 +22%/+28%,副属性随品质提升</p>' +
+      '<div><button class="btn btn-primary" data-close>关闭</button></div>');
+    $('#modal-content').querySelectorAll('[data-refine]').forEach(b => {
+      b.addEventListener('click', () => { Game.refineWeapon(b.dataset.refine); closeModal(); showWeaponPanel(); });
+    });
+  }
+
+  /* ================= 渲染循环 ================= */
+  function renderBattle(run, battle, paused) {
+    if (Game.state !== 'battle' || !run || !battle) return;
+    refreshHud(run, battle);
+    refreshUnits(run, battle);
+  }
+
+  function fmtTime(sec) {
+    return Math.floor(sec / 60) + ':' + Rand.pad(Math.floor(sec % 60));
+  }
+
+  function setSummonable(ok) {
+    const b = $('#btn-summon');
+    if (b) {
+      b.disabled = !ok;
+      b.classList.toggle('btn-glow', !!ok);
+    }
+  }
+
+  return {
+    init, enterMenu, refreshMenu, showScreen,
+    enterBattle, refresh, renderBattle,
+    setSummonable, showItemReward, showWeaponPanel,
+    showStaminaModal, showAd, showSettle, showTutor,
+    dmgFx, boltFx, skillFx, adouHurt,
+    tip, toast, hint, modal, closeModal
+  };
+})();
