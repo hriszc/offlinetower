@@ -392,6 +392,7 @@ button{ font-family:inherit; cursor:pointer; }
   display:flex; align-items:center; justify-content:center;
   backdrop-filter:blur(2px);
 }
+.modal-layer{ z-index:60; background:rgba(30,22,16,.45); }   /* 叠加层：位于结算弹窗之上 */
 .modal-box{
   background:linear-gradient(170deg, #fbf4e2, #e9dcb8);
   border:3px solid var(--ink);

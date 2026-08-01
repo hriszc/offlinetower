@@ -92,7 +92,7 @@ window.CFG = (function () {
   /* ---------- 经济（方案 §5.4） ---------- */
   const ECONOMY = {
     startMantou: 20,        // 开局馒头
-    firstGameMantou: 40,    // 首局额外
+    firstGameMantou: 20,    // 首局额外馒头（开局 20 + 20 = 40）
     killMantou: 1,          // 杀怪 1 馒头/只
     adouHitMantou: 10,      // 阿斗掉血 10 馒头/滴（卖血经济）
     bossMantou: 10,         // 击杀 BOSS

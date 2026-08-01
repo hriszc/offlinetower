@@ -73,7 +73,7 @@ window.Engine = (function () {
       this.buffAtk = 0; this.buffFrq = 0;   // 自身临时 buff（占位,团队 buff 在 battle）
     }
     baseAtk() { return this.gen.atk * (1 + (this.level - 1) * CFG.LV_GROW); }
-    baseFrq() { return this.gen.frq; }
+    baseFrq() { return this.gen.frq * (1 + (this.level - 1) * CFG.LV_GROW); }   // 攻速随等级成长（每级 +8%,与文档一致）
     baseRge() { return this.gen.rge; }
     baseTargets() { return this.gen.targets; }
   }

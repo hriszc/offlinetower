@@ -30,8 +30,7 @@ function simulate(strategyName, opts) {
   const battle = new Engine.Battle(CFG.MAPS[0], {});
   let mantou = CFG.ECONOMY.startMantou;
   let drawCount = 0, frags = 0, levyLeft = 0;
-  let tiles = [], spell = [null, null, null];
-  let bench = [];
+  let tiles = [], bench = [];
   battle.on('kill', () => mantou += CFG.ECONOMY.killMantou);
   battle.on('waveClear', w => mantou += CFG.ECONOMY.waveClearMantou);
   battle.on('adouHit', () => mantou += CFG.ECONOMY.adouHitMantou);
@@ -45,13 +44,16 @@ function simulate(strategyName, opts) {
   function owned() {
     const o = {};
     for (const t of tiles) (o[t.general] = o[t.general] || []).push(t.char);
-    for (const t of spell) if (t) (o[t.general] = o[t.general] || []).push(t.char);
     return o;
   }
+  // 收集配对：手牌凑齐某武将全部姓名字 → 可召唤（跳过拼字槽 UI 交互,聚焦经济/掉率回归）
   function match() {
-    const chars = spell.filter(Boolean).map(t => t.char).sort().join('');
-    if (!chars) return null;
-    return CFG.GENERALS.find(g => g.chars.slice().sort().join('') === chars) || null;
+    for (const g of CFG.GENERALS) {
+      if (bench.some(b => b.name === g.name)) continue;
+      if (battle.units.some(u => u.gen.name === g.name)) continue;
+      if (g.chars.every(c => tiles.some(t => t.char === c))) return g;
+    }
+    return null;
   }
   // 部署策略：中路优先（覆盖多行），同 game.js 首将赠池站位逻辑
   const DEPLOY_ORDER = [[2, 2], [1, 2], [2, 1], [1, 1], [2, 3], [1, 3], [3, 2], [2, 0], [2, 4], [3, 1], [3, 3], [1, 0], [1, 4], [0, 2], [3, 0], [3, 4], [0, 1], [0, 3], [4, 2], [0, 0], [0, 4], [4, 1], [4, 3], [5, 2], [4, 0], [4, 4], [5, 1], [5, 3], [5, 0], [5, 4]];
@@ -104,49 +106,24 @@ function simulate(strategyName, opts) {
     }
     return true;
   }
-  function placeTile() {
-    // 槽满时先取回无关字（模拟真实玩家重组拼字槽）
-    const full = spell.filter(Boolean).length >= 3;
-    if (full) {
-      const slot = spell.findIndex(t => t);
-      if (slot >= 0) { tiles.push(spell[slot]); spell[slot] = null; }
-    }
-    let best = null, bestMiss = 99, bestIdx = -1, bestSlot = -1;
-    for (const g of CFG.GENERALS) {
-      if (bench.some(b => b.name === g.name)) continue;
-      if (battle.units.some(u => u.gen.name === g.name)) continue;
-      const missing = g.chars.filter(c => !spell.some(s => s && s.char === c));
-      const haveInTiles = missing.filter(c => tiles.some(t => t.char === c));
-      if (haveInTiles.length && missing.length < bestMiss) {
-        const idx = tiles.findIndex(t => t.char === haveInTiles[0]);
-        const slot = spell.findIndex(s => !s);
-        if (slot >= 0) { best = g; bestMiss = missing.length; bestIdx = idx; bestSlot = slot; }
-      }
-    }
-    if (best) {
-      spell[bestSlot] = tiles[bestIdx];
-      tiles.splice(bestIdx, 1);
-      return true;
-    }
-    return false;
-  }
-
   let t = 0, turn = 0;
   while (t < 600 && !battle.over && turn < 12000) {  // 12000 turns ≈ 600s（与真实单局上限一致）
     turn++;
     const g = match();
+    const cost = CFG.ECONOMY.recruitBase + CFG.ECONOMY.recruitStep * drawCount;
     if (g && mantou >= CFG.ECONOMY.summonCost) {
       mantou -= CFG.ECONOMY.summonCost;
-      spell = [null, null, null];
+      for (const c of g.chars) {
+        const i = tiles.findIndex(t => t.char === c);
+        if (i >= 0) tiles.splice(i, 1);
+      }
       if (!bench.some(b => b.name === g.name)) {
         bench.push({ name: g.name, level: 1, attackCount: 0, kills: 0 });
       }
     } else if (g) {
-      // 拼齐但钱不够 → 等待卖血攒钱
-    } else if (placeTile()) {
-      // 拼字凑字中
-    } else {
-      doRecruit();
+      // 已拼齐但钱不够 → 等待卖血攒钱
+    } else if (mantou >= cost) {
+      doRecruit();   // 真实玩家：有钱优先抽卡获取字牌
     }
     tryDeploy();
     battle.update(0.05);

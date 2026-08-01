@@ -52,7 +52,7 @@ window.Game = (function () {
     applyPersistItems();
     // 首局：送「赵」「云」+ 额外馒头,教学引导；正常局：赠送随机 2 字武将全套字牌（保证首将可守）
     if (run.firstGame) {
-      run.mantou += 20;
+      run.mantou += CFG.ECONOMY.firstGameMantou;
       grantTile('赵', 'zhaoyun');
       grantTile('云', 'zhaoyun');
       run.tutorStep = 1;

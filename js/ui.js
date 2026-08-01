@@ -530,6 +530,23 @@ window.UI = (function () {
     $('#modal-mask').classList.add('hidden');
   }
 
+  /* 独立弹窗层：与主弹窗（#modal-content）共存叠加,不被 innerHTML 覆盖销毁 */
+  function modalLayer(html, opts) {
+    opts = opts || {};
+    const mask = document.createElement('div');
+    mask.className = 'modal modal-layer';
+    const box = document.createElement('div');
+    box.className = 'modal-box';
+    box.innerHTML = html;
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+    mask.close = () => mask.remove();
+    mask.querySelectorAll('[data-close]').forEach(c => {
+      c.addEventListener('click', () => { mask.close(); if (opts.onClose) opts.onClose(); });
+    });
+    return mask;
+  }
+
   /* 道具三选一 */
   function showItemPick() {
     const items = CFG.ITEMS.slice();
@@ -674,26 +691,26 @@ window.UI = (function () {
       ? '<div class="reward-line">当前道具(' + list.length + '/' + CFG.ITEM_BOOST_MAX + '):' +
         list.map(id => { const b = CFG.ITEM_BOOSTS.find(x => x.id === id); return '<b>' + b.name + '</b>'; }).join(' ') + '</div>'
       : '<div class="reward-line">道具栏(0/' + CFG.ITEM_BOOST_MAX + ')</div>';
-    modal('<h2>局间道具</h2>' +
+    // 独立弹窗层叠加在结算弹窗之上（不覆盖销毁结算按钮）
+    const closeLayer = modalLayer('<h2>局间道具</h2>' +
       '<p>每局结束三选一,最多 6 个、可替换</p>' +
       listHtml +
       '<div class="choice-grid">' +
       picks.map(b => '<button class="choice-item" data-pick="' + b.id + '">' +
         '<div class="ci-title">' + b.name + '</div><div class="ci-desc">' + b.desc + '</div></button>').join('') +
-      (full ? '<button class="choice-item" data-pick="__skip__"><div class="ci-title">放弃</div><div class="ci-desc">道具栏已满,放弃本次奖励</div></button>' : '') +
       '<button class="choice-item" data-pick="__skip__"><div class="ci-title">放弃</div><div class="ci-desc">暂不领取</div></button>' +
       '</div>');
-    $('#modal-content').querySelectorAll('[data-pick]').forEach(b => {
+    closeLayer.querySelectorAll('[data-pick]').forEach(b => {
       b.addEventListener('click', () => {
         const id = b.dataset.pick;
-        if (id === '__skip__') { closeModal(); return; }
+        if (id === '__skip__') { closeLayer.close(); return; }
         if (list.length >= CFG.ITEM_BOOST_MAX) {
           // 满 6 个：先选要替换的旧道具
-          closeModal();
+          closeLayer.close();
           showItemReplace(id);
         } else {
           Game.pickRewardItem(id);
-          closeModal();
+          closeLayer.close();
           UI.toast('获得局间道具「' + CFG.ITEM_BOOSTS.find(x => x.id === id).name + '」', 'gold');
         }
       });
@@ -701,7 +718,7 @@ window.UI = (function () {
   }
   function showItemReplace(newId) {
     const list = Save.items();
-    modal('<h2>替换道具</h2>' +
+    const closeLayer = modalLayer('<h2>替换道具</h2>' +
       '<p>道具栏已满,选择要替换的旧道具</p>' +
       '<div class="choice-grid">' +
       list.map(id => { const b = CFG.ITEM_BOOSTS.find(x => x.id === id);
@@ -709,14 +726,14 @@ window.UI = (function () {
           '<div class="ci-title">' + b.name + '</div><div class="ci-desc">' + b.desc + '</div></button>'; }).join('') +
       '<button class="choice-item" data-replace="__cancel__"><div class="ci-title">取消</div></button>' +
       '</div>');
-    $('#modal-content').querySelectorAll('[data-replace]').forEach(b => {
+    closeLayer.querySelectorAll('[data-replace]').forEach(b => {
       b.addEventListener('click', () => {
         const oldId = b.dataset.replace;
-        if (oldId === '__cancel__') { closeModal(); return; }
+        if (oldId === '__cancel__') { closeLayer.close(); return; }
         if (Game.replaceRewardItem(oldId, newId)) {
           UI.toast('已用「' + CFG.ITEM_BOOSTS.find(x => x.id === newId).name + '」替换「' + CFG.ITEM_BOOSTS.find(x => x.id === oldId).name + '」', 'gold');
         }
-        closeModal();
+        closeLayer.close();
       });
     });
   }
