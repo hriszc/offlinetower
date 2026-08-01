@@ -6,7 +6,7 @@ window.UI = (function () {
   const CFG = window.CFG, Save = window.Save, Rand = window.Rand;
   const $ = s => document.querySelector(s);
 
-  let boardEl = null, boardWrapEl = null, adouEl = null;
+  let boardEl = null, adouEl = null;
   let monsterEls = {};       // monsterSeq -> el
   let unitEls = {};          // unit id -> el
   let unitIdSeq = 0;
@@ -81,7 +81,6 @@ window.UI = (function () {
 
   function buildBoard() {
     boardEl = $('#board');
-    boardWrapEl = $('#board-wrap');
     boardEl.innerHTML = '';
     // 网格线
     for (let c = 1; c < Game.BOARD_COLS; c++) {
@@ -149,9 +148,16 @@ window.UI = (function () {
       adouEl.innerHTML = '斗<div class="adou-hp">' + '❤'.repeat(battle.adou.hp) + '</div>';
       adouEl.classList.toggle('dead', battle.adou.hp <= 0);
     }
-    // buffs（无羁绊，保留容器以便后续扩展）
+    // 生效中的团队 buff（曹操/刘备/孙权加成,含剩余秒数）
     const bub = $('#hud-buffs');
-    bub.innerHTML = '';
+    const tb = battle.teamBuffs;
+    let chips = '';
+    if (tb.until > battle.time) {
+      const left = Math.ceil(tb.until - battle.time);
+      if (tb.atkAdd > 0) chips += '<span class="buff-chip">攻击+' + Math.round(tb.atkAdd * 100) + '% ' + left + 's</span>';
+      if (tb.frqAdd > 0) chips += '<span class="buff-chip">攻速+' + Math.round(tb.frqAdd * 100) + '% ' + left + 's</span>';
+    }
+    bub.innerHTML = chips;
     // 按钮状态实时刷新（战斗中获得资源后可用）
     let cost = CFG.ECONOMY.recruitBase + CFG.ECONOMY.recruitStep * run.drawCount;
     if (run.levyLeft > 0) cost = Math.ceil(cost / 2);
@@ -406,10 +412,6 @@ window.UI = (function () {
       if (inBench) Game.recallUnit(d.uid);
       else if (p.overBoard) Game.moveUnit(d.uid, p.col, p.row);
     }
-  }
-
-  function onBoardPointerDown() {
-    // 点击空白棋盘取消拖拽高亮（暂无选中态）
   }
 
   /* ================= 特效 ================= */

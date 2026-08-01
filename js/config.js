@@ -142,7 +142,7 @@ window.CFG = (function () {
 
   /* ---------- 机器人（方案 §5.4 军衔分层战绩分布） ---------- */
   const BOT_LAYERS = [
-    { ranks: [0, 1],            mean: 7,  sigma: 1.5, label: '初出茅庐' },
+    { ranks: [0, 1],            mean: 6,  sigma: 1.5, label: '初出茅庐' },
     { ranks: [2, 3, 4],         mean: 12, sigma: 2,   label: '小有所成' },
     { ranks: [5, 6, 7],         mean: 19, sigma: 2.5, label: '沙场老将' },
     { ranks: [8, 9, 10],        mean: 26, sigma: 2,   label: '一代枭雄' }

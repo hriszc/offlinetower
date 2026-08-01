@@ -61,7 +61,7 @@ assert(r3.battle.wave >= 30, `6将2星可打到第 30 波终局（实际 ${r3.ba
 
 console.log('--- 机器人分层（genWaves 层内均值,方案 §5.4 参数） ---');
 const layers = [
-  { rank: 0, name: '军士/校尉', mean: 7,  range: [6.5, 7.5] },
+  { rank: 0, name: '军士/校尉', mean: 6,  range: [5.5, 6.5] },
   { rank: 3, name: '少/中/上将', mean: 12, range: [11.5, 12.5] },
   { rank: 6, name: '大将/元帅/诸侯', mean: 19, range: [18.5, 19.5] },
   { rank: 9, name: '霸主/君主/皇帝', mean: 26, range: [25.5, 26.5] }

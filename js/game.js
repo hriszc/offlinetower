@@ -308,12 +308,16 @@ window.Game = (function () {
 
   /* ================= 结算 ================= */
   function settle(result) {
+    // 防竞态：finish 后 500ms 内玩家点撤退/回主城会置空 run/battle
+    if (!battle || !run) return;
     const myWaves = battle.wavesSurvived();
     const myTime = Math.round(battle.time);
     const myAdou = battle.adou.hp;
     const opp = run.opp;
     let verdict;
-    if (myWaves > opp.waves) verdict = 'win';
+    // 通关保底：满 30 波（最高成就）直接判胜，避免因用时 tie-break 对同为 30 波的机器人判负
+    if (myWaves >= CFG.MAX_WAVE) verdict = 'win';
+    else if (myWaves > opp.waves) verdict = 'win';
     else if (myWaves < opp.waves) verdict = 'lose';
     else {
       if (myTime < opp.timeSec) verdict = 'win';
@@ -349,7 +353,8 @@ window.Game = (function () {
     if (Save.adsLeft() <= 0) { UI.toast('今日广告次数已用完', 'red'); return; }
     UI.showAd(function () {
       Save.watchAd();
-      UI.refreshMenu();
+      // 回到主菜单：避免结算后看广告却停留在残留战斗画面（backToMenu 对菜单态幂等）
+      Game.backToMenu();
     });
   }
 

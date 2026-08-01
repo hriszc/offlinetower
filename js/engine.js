@@ -14,7 +14,6 @@ window.Engine = (function () {
       this.spd = 0.55 * t.spd * map.spdMul;
       this.col = -0.3;                      // 出生在棋盘左侧外
       this.row = Rand.pick(map.rows);
-      this.hpMul = 1;
       this.dead = false;
       this.stunUntil = 0;
       this.dot = null;                      // {dps, until}
@@ -93,12 +92,9 @@ window.Engine = (function () {
       this.teamBuffs = { atkAdd: 0, frqAdd: 0, until: 0 };
       this.over = false; this.result = null;
       this.popUsed = 0; this.popMax = 6;
-      this.pendingSpawn = 0;
       this.callbacks = {};
       // 首波准备时间
       this.prepTimer = 8;
-      this.bossKilled = false;
-      this.nextWaveAfter = 2.5;
       this.clearingTimer = 0;
     }
     on(ev, fn) { this.callbacks[ev] = fn; }
@@ -139,10 +135,16 @@ window.Engine = (function () {
     }
 
     /* ---------- 波次 ---------- */
+    // 单怪血量：与 spawnMonster 生成完全一致（精英加成已含在 wc.hpMul，BOSS 额外 ×12）
+    monsterHp(type, wc, isBoss) {
+      let hp = CFG.BASE_MON_HP * wc.hpMul * CFG.MONSTER_TYPES[type].hp;
+      if (isBoss) hp *= 12;
+      return hp;
+    }
     startNextWave() {
       this.wave++;
       const wc = CFG.waveConfig(this.wave);
-      // POW 约束：怪物总 POW ≤ 玩家 POW × 1.5（方案 §5.4），超出则削减数量
+      // POW 约束：怪物总 POW ≤ 玩家 POW × 1.5（方案 §5.4），超出则削减数量；精英/BOSS 血量同生成一致
       const playerPOW = this.units.reduce((s, u) => s + this.effAtk(u) * this.effFrq(u) * this.effRge(u) * u.baseTargets(), 0);
       let count = wc.count;
       let wavePow = 0;
@@ -151,8 +153,11 @@ window.Engine = (function () {
         for (let i = 0; i < count; i++) types.push(Rand.pick(CFG.MONSTER_TYPES_KEYS));
         for (const t of types) {
           const mt = CFG.MONSTER_TYPES[t];
-          const hp = CFG.BASE_MON_HP * wc.hpMul * mt.hp;
-          wavePow += hp * (0.55 * mt.spd);
+          wavePow += this.monsterHp(t, wc, false) * (0.55 * mt.spd);
+        }
+        if (wc.bossCount) {   // BOSS 也计入校验（hp×12, spd×0.7）
+          const t = Rand.pick(CFG.MONSTER_TYPES_KEYS);
+          wavePow += this.monsterHp(t, wc, true) * (0.55 * CFG.MONSTER_TYPES[t].spd * 0.7);
         }
         if (playerPOW > 0 && wavePow > playerPOW * 1.5) {
           const k = (playerPOW * 1.5) / wavePow;
@@ -177,9 +182,8 @@ window.Engine = (function () {
       const m = new Monster(cfg.type, this.wave, cfg.elite, cfg.boss, this.map);
       const mt = CFG.MONSTER_TYPES[cfg.type];
       const wc = CFG.waveConfig(this.wave);
-      let hp = CFG.BASE_MON_HP * wc.hpMul * mt.hp;
-      if (cfg.elite) { hp *= 2; }
-      if (cfg.boss) { hp *= 12; }
+      // 血量与 POW 校验完全一致（wc.hpMul 已含精英 ×2；BOSS 在此 ×12）
+      const hp = this.monsterHp(cfg.type, wc, cfg.boss);
       // 阿斗为滴制（1 滴/次），怪物攻击成长体现在攻击间隔缩短：gap = 1.2 / 1.05^(n-1)
       const atkGap = (mt.atkSpd || 1.2) / Math.pow(CFG.WAVE_ATK_GROW, this.wave - 1);
       m.resetStats({ hp: hp, atkGap: Math.max(0.35, atkGap) });
