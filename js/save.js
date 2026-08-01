@@ -16,7 +16,8 @@ window.Save = (function () {
     return {
       score: 0,                 // 军衔积分（累计保留）
       coins: 0,                 // 蜜獾币（局外,保留）
-      generals: {},             // { 武将名: { star, level } }
+      generals: {},             // { 武将名: { collected: 1 } }（无星级,仅收集）
+      items: [],                // 局间道具（每局结束 3 选 1,最多 6 个）
       firstGameDone: false,     // 首局引导
       totalGames: 0,
       totalWins: 0,
@@ -74,16 +75,29 @@ window.Save = (function () {
     save();
   }
 
-  /* ---------- 武将收集 ---------- */
-  function getGeneral(name) {
-    const g = data.generals[name];
-    if (!g) { data.generals[name] = { star: 1, level: 1 }; save(); return data.generals[name]; }
-    return g;
-  }
-  function addStar(name, n) {
-    const g = getGeneral(name);
-    g.star = Math.min(5, (g.star || 1) + (n || 1));
+  /* ---------- 武将收集（无星级,仅记录是否召唤过） ---------- */
+  function collect(name) {
+    if (!data.generals[name]) data.generals[name] = { collected: 1 };
     save();
+  }
+  function collected(name) { return !!data.generals[name]; }
+
+  /* ---------- 局间道具（最多 6 个,可替换） ---------- */
+  function items() { return data.items || (data.items = []); }
+  function addItem(itemId) {
+    const list = items();
+    if (list.length >= CFG.ITEM_BOOST_MAX) return false;
+    if (list.includes(itemId)) return true;   // 重复道具不叠加（同 id 不重复持有）
+    list.push(itemId);
+    save();
+    return true;
+  }
+  function replaceItem(oldId, newId) {
+    const list = items();
+    const i = list.indexOf(oldId);
+    if (i < 0) return false;
+    if (!list.includes(newId)) { list[i] = newId; save(); return true; }
+    return false;
   }
 
   /* ---------- 对局记录 ---------- */
@@ -129,9 +143,10 @@ window.Save = (function () {
   return {
     load, save, rollDay, dayIndex, mapOfToday,
     rankIndex, rank, rankProgress, addScore,
-    getGeneral, addStar,
+    collect, collected,
+    items, addItem, replaceItem,
     recordGame, winRate,
     stamina, spendStamina, adsLeft, watchAd,
-    STAMINA_MAX, ADS_PER_DAY
+    STAMINA_MAX, ADS_PER_DAY, ITEM_BOOST_MAX: CFG.ITEM_BOOST_MAX
   };
 })();

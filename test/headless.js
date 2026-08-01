@@ -37,8 +37,8 @@ function simOneGame(name, deploys, maxT) {
   battle.on('adouHit', () => ev.adouHits++);
   battle.on('finish', r => ev.finish = r);
   battle.on('waveClear', w => ev.waves = w);
-  for (const [gen, star, col, row] of deploys) {
-    battle.deploy(new Engine.Unit(gen, star, 1), col, row);
+  for (const [gen, level, col, row] of deploys) {
+    battle.deploy(new Engine.Unit(gen, level), col, row);
   }
   let t = 0;
   while (t < maxT && !battle.over) {
@@ -55,21 +55,21 @@ function simOneGame(name, deploys, maxT) {
   return { battle, t, ev };
 }
 
-console.log('--- 战斗数值配平 ---');
+console.log('--- 战斗数值配平（无克制/无升星,局内按攻击次数升级） ---');
 // 教学局：单赵云（rge3 覆盖多路）不应在前 2 波崩盘
 const r1 = simOneGame('单赵云(教学)', [['赵云', 1, 2, 2]], 600);
 assert(r1.battle.wave >= 3, `教学局单赵云至少撑到第 3 波（实际 ${r1.battle.wave} 波）`);
-// 4 将 1 星：10-12 波阵容成型前不崩
-const r2 = simOneGame('4将1星', [['赵云', 1, 2, 2], ['张飞', 1, 1, 2], ['周瑜', 1, 2, 1], ['诸葛亮', 1, 2, 3]], 600);
-assert(r2.battle.wave >= 10, `4将1星至少撑到第 10 波（实际 ${r2.battle.wave} 波）`);
-// 6 将 2 星：单局时长 5-10 分钟（300-600s）
-const r3 = simOneGame('6将2星', [
-  ['赵云', 2, 2, 2], ['张飞', 2, 1, 2], ['关羽', 2, 1, 1], ['周瑜', 2, 2, 1],
-  ['诸葛亮', 2, 2, 3], ['吕布', 2, 1, 3]
+// 4 将 L1：10-12 波阵容成型前不崩
+const r2 = simOneGame('4将L1', [['赵云', 1, 2, 2], ['张飞', 1, 1, 2], ['周瑜', 1, 2, 1], ['诸葛亮', 1, 2, 3]], 600);
+assert(r2.battle.wave >= 10, `4将L1至少撑到第 10 波（实际 ${r2.battle.wave} 波）`);
+// 6 将 L8（≈原 2 星强度 1.56x）：单局时长 5-10 分钟（300-600s）
+const r3 = simOneGame('6将L8', [
+  ['赵云', 8, 2, 2], ['张飞', 8, 1, 2], ['关羽', 8, 1, 1], ['周瑜', 8, 2, 1],
+  ['诸葛亮', 8, 2, 3], ['吕布', 8, 1, 3]
 ], 600);
-assert(r3.t >= 300 && r3.t <= 600, `6将2星单局时长 5-10 分钟（实际 ${r3.t.toFixed(0)}s）`);
+assert(r3.t >= 300 && r3.t <= 600, `6将L8单局时长 5-10 分钟（实际 ${r3.t.toFixed(0)}s）`);
 // 模拟器未走三选一强化/留怒运营,能打到第 30 波终局即证明曲线可达；通关依赖玩家运营
-assert(r3.battle.wave >= 30, `6将2星可打到第 30 波终局（实际 ${r3.battle.wave} 波）`);
+assert(r3.battle.wave >= 30, `6将L8可打到第 30 波终局（实际 ${r3.battle.wave} 波）`);
 
 console.log('--- 地图 countMul 生效（每日轮换差异化） ---');
 {
@@ -81,26 +81,32 @@ console.log('--- 地图 countMul 生效（每日轮换差异化） ---');
   assert(b2.queue.length <= 3, `虎牢关第 1 波 ${b2.queue.length} 怪（≤3,数量×0.9 生效）`);
 }
 
-console.log('--- 技能释放链路（满怒点击→生效,回归 #1 uid 契约） ---');
+console.log('--- 技能自动释放 / 局内攻击升级 / 局间道具（回归设计变更 2/4/5） ---');
 {
   // uid 契约：ui.js 生成数字 _uid,game.findUnit 按数字查找（防字符串 'u1' 不匹配回归）
   let seq = 0;
   const unit = { _uid: ++seq };
-  const uidFromUi = unit._uid;                                  // ui.js 现生成纯数字
+  const uidFromUi = unit._uid;
   const n = typeof uidFromUi === 'string' ? Number(uidFromUi.replace('u', '')) : uidFromUi;
   assert(n === unit._uid, 'uid 契约:ui 生成的数字 _uid 可被 findUnit 命中');
-  // 满怒点击释放（engine 层链路）
+  // 主动技能自动释放：满怒且冷却就绪,update 自动触发（无需手动点击）
   const b = new Engine.Battle(CFG.MAPS[0], {});
-  const zf = new Engine.Unit('张飞', 1, 1);
+  b.startNextWave();
+  const zf = new Engine.Unit('张飞', 1);
   b.deploy(zf, 2, 2);
   zf.fury = 100; zf.skillCd = 0;
-  assert(b.castSkill(zf) === true, '满怒武将技能可释放');
-  assert(zf.fury === 0, '释放后怒气清零');
-  zf.fury = 50; zf.skillCd = 0;
-  assert(b.castSkill(zf) === false, '未满怒不可释放');
-  // 技能效果：张飞大喝眩晕+伤害
+  b.update(0.05);
+  assert(zf.fury === 0, '满怒且冷却就绪时自动释放技能（怒气清零）');
+  assert(zf.skillCd > 0, '自动释放后进入冷却');
+  // 未满怒不自动释放
+  const zfB = new Engine.Unit('张飞', 1);
+  b.deploy(zfB, 2, 3);
+  zfB.fury = 50; zfB.skillCd = 0;
+  b.update(0.05);
+  assert(zfB.fury === 50, '未满怒不自动释放');
+  // 技能效果：张飞大喝眩晕+伤害（castSkill 仍为引擎公共 API）
   const b2 = new Engine.Battle(CFG.MAPS[0], {});
-  const zf2 = new Engine.Unit('张飞', 1, 1);
+  const zf2 = new Engine.Unit('张飞', 1);
   b2.deploy(zf2, 2, 2);
   const m = b2.spawnMonster({ type: '刀', elite: false, boss: false });
   m.col = 2.5; m.row = 2;
@@ -108,6 +114,24 @@ console.log('--- 技能释放链路（满怒点击→生效,回归 #1 uid 契约
   b2.castSkill(zf2);
   assert(m.stunUntil > 0, '大喝眩晕生效');
   assert(m.hp < m.maxHp, '大喝造成伤害');
+  // 局内成长：按攻击次数升级（无升星；赵云 col5 打停在阿斗处的怪,持续命中）
+  const b4 = new Engine.Battle(CFG.MAPS[0], {});
+  b4.wave = 1; b4.waveState = 'spawning';
+  b4.adou.maxHp = 1000; b4.adou.hp = 1000;   // 防阿斗提前阵亡
+  const zy = new Engine.Unit('赵云', 1);
+  b4.deploy(zy, 5, 2);
+  const mm = b4.spawnMonster({ type: '刀', elite: false, boss: false });
+  mm.arrived = true; mm.col = 6; mm.row = 2; mm.maxHp = 1e9; mm.hp = 1e9;   // 打不死,持续攻击
+  for (let i = 0; i < 400; i++) b4.update(0.05);            // 20s
+  assert(zy.attackCount > 0, `攻击命中累积攻击次数（${zy.attackCount}）`);
+  assert(zy.level >= 2, `按攻击次数升级生效（Lv.${zy.level}）`);
+  // 局间道具常驻加成生效（原被动能力挪入）
+  const b5 = new Engine.Battle(CFG.MAPS[0], {});
+  const zf5 = new Engine.Unit('张飞', 1);
+  const a0 = b5.effAtk(zf5);
+  b5.permaAtk = 0.15; b5.permaFrq = 0.12; b5.permaCrit = 0.10; b5.permaCd = 0.85;
+  assert(b5.effAtk(zf5) > a0 * 1.14, '局间道具攻击加成生效');
+  assert(b5.skillCdMult() === 0.85, '局间道具冷却缩减生效');
 }
 
 console.log('--- 机器人分层（genWaves 层内均值,方案 §5.4 参数） ---');
@@ -144,7 +168,7 @@ for (const g of giftPool) {
   const N = 20;
   for (let i = 0; i < N; i++) {
     const b = new Engine.Battle(CFG.MAPS[0], {});
-    b.deploy(new Engine.Unit(g.name, 1, 1), 2, 2);   // 中路站位
+    b.deploy(new Engine.Unit(g.name, 1), 2, 2);   // 中路站位
     let t = 0;
     while (t < 120 && !b.over) { b.update(0.05); t += 0.05; }
     if (b.wave < 2) failWave1++;

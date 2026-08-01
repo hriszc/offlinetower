@@ -35,7 +35,7 @@ window.Game = (function () {
       frags: 0,
       tiles: [],                 // 手牌字牌 [{char,general,quality}]
       spell: [null, null, null], // 拼字槽
-      bench: [],                 // 待部署 [{name,star,level,exp,kills}]
+      bench: [],                 // 待部署 [{name,level,attackCount,kills}]
       item: itemId,
       levyLeft: 0,
       boosts: [],
@@ -44,10 +44,12 @@ window.Game = (function () {
       startTs: Date.now(),
       firstGame: !Save.load().firstGameDone
     };
-    // 道具效果
+    // 开局军备效果
     if (itemId === 'shield') { battle.adou.maxHp += 2; battle.adou.hp = battle.adou.maxHp; run.mantou -= 5; }
     if (itemId === 'food') run.mantou += 40;
     if (itemId === 'levy') run.levyLeft = 3;
+    // 局间道具（每局结束 3 选 1,最多 6 个）作用于本局
+    applyPersistItems();
     // 首局：送「赵」「云」+ 额外馒头,教学引导；正常局：赠送随机 2 字武将全套字牌（保证首将可守）
     if (run.firstGame) {
       run.mantou += 20;
@@ -156,22 +158,13 @@ window.Game = (function () {
     if (run.mantou < CFG.ECONOMY.summonCost) { UI.tip('馒头不足,召唤需 ' + CFG.ECONOMY.summonCost); return; }
     run.mantou -= CFG.ECONOMY.summonCost;
     run.spell = [null, null, null];
-    // 重复拼出 → 升星（方案：重复拼出=升星）
-    const saved = Save.getGeneral(g.name);
+    // 无升星：重复拼出同一武将 → 转化为碎片（收集已记录）
     if (run.bench.some(b => b.name === g.name) || (battle.units.some(u => u.gen.name === g.name))) {
-      const benchItem = run.bench.find(b => b.name === g.name);
-      if (benchItem) {
-        if (benchItem.star < 5) { benchItem.star++; Save.addStar(g.name, 1); UI.toast('「' + g.name + '」升星 → ' + benchItem.star + ' 星！', 'gold'); }
-        else { run.frags += 5; UI.toast('「' + g.name + '」已满星,获得碎片 ×5', 'gold'); }
-      } else {
-        const unit = battle.units.find(u => u.gen.name === g.name);
-        if (unit) {
-          if (unit.star < 5) { unit.star++; Save.addStar(g.name, 1); UI.toast('「' + g.name + '」升星 → ' + unit.star + ' 星！', 'gold'); }
-          else { run.frags += 5; UI.toast('「' + g.name + '」已满星,获得碎片 ×5', 'gold'); }
-        }
-      }
+      run.frags += 5;
+      UI.toast('「' + g.name + '」已在军中,转化为碎片 ×5', 'gold');
     } else {
-      run.bench.push({ name: g.name, star: Math.max(1, saved.star), level: 1, exp: 0, kills: 0 });
+      run.bench.push({ name: g.name, level: 1, attackCount: 0, kills: 0 });
+      Save.collect(g.name);
       UI.toast('召唤成功！「' + g.name + '」(' + CFG.CLS_NAMES[g.cls] + ')', 'gold');
       if (run.firstGame && run.tutorStep === 2) {
         run.tutorStep = 3;
@@ -201,8 +194,8 @@ window.Game = (function () {
     const item = run.bench[benchIdx];
     if (!item) return false;
     if (!battle.canPlace(col, row)) return false;
-    const u = new Engine.Unit(item.name, item.star, item.level);
-    u.exp = item.exp; u.kills = item.kills;
+    const u = new Engine.Unit(item.name, item.level);
+    u.attackCount = item.attackCount; u.kills = item.kills;
     if (battle.deploy(u, col, row)) {
       run.bench.splice(benchIdx, 1);
       UI.refresh();
@@ -227,21 +220,13 @@ window.Game = (function () {
     const u = findUnit(uid);
     if (!u) return;
     battle.recall(u);
-    run.bench.push({ name: u.gen.name, star: u.star, level: u.level, exp: u.exp, kills: u.kills });
+    run.bench.push({ name: u.gen.name, level: u.level, attackCount: u.attackCount, kills: u.kills });
     UI.refresh();
   }
   function findUnit(uid) {
     // 类型归一：ui 层传入数字 _uid（防御历史字符串 'u1' 形态）
     const n = typeof uid === 'string' ? Number(uid.replace('u', '')) : uid;
     return battle.units.find(u => u._uid === n) || null;
-  }
-  function castUnit(uid) {
-    if (!battle || !run) return;
-    const u = findUnit(uid);
-    if (!u) return;
-    if (u.fury < 100) { UI.tip('怒气不足（' + Math.floor(u.fury) + '/100）'); return; }
-    if (u.skillCd > 0) { UI.tip('技能冷却中'); return; }
-    if (battle.castSkill(u)) UI.tip('「' + u.gen.skill.name + '」发动！');
   }
 
   /* ================= 战斗事件绑定 ================= */
@@ -266,7 +251,6 @@ window.Game = (function () {
       UI.adouHurt();
       UI.toast('阿斗掉血 -1 ❤,卖血 +10 馒头', 'red');
     });
-    battle.on('adouHeal', () => UI.adouHeal());
     battle.on('economy', () => {
       run.mantou += 150;
       UI.toast('孙权:坐断东南,+150 馒头！', 'gold');
@@ -289,27 +273,44 @@ window.Game = (function () {
     });
   }
 
-  /* ================= 三选一强化 ================= */
+  /* ================= 三选一强化（每 3 波,自动技能无手动交互） ================= */
   function applyBoost(boostId) {
     const b = CFG.BOOSTS.find(x => x.id === boostId);
     run.boosts.push(boostId);
     switch (boostId) {
       case 'atk': for (const u of battle.units) u.buffAtk += 0.15; break;
       case 'frq': for (const u of battle.units) u.buffFrq += 0.12; break;
-      case 'adou': battle.adou.maxHp++; battle.adou.hp = battle.adou.maxHp; break;
+      case 'adou': battle.adou.maxHp++; break;
       case 'mantou': run.mantou += 80; break;
-      case 'star': {
+      case 'level': {
         const list = battle.units;
-        if (list.length) {
-          const u = Rand.pick(list);
-          if (u.star < 5) { u.star++; Save.addStar(u.gen.name, 1); }
-        }
+        if (list.length) { const u = Rand.pick(list); u.level++; }
         break;
       }
     }
     paused = false;
     UI.refresh();
     UI.tip('强化「' + b.title + '」生效');
+  }
+
+  /* ================= 局间道具（每局结束 3 选 1,最多 6 个） ================= */
+  function applyPersistItems() {
+    const items = Save.load().items;
+    if (!items.length) return;
+    battle.permaAtk = items.includes('atk') ? 0.15 : 0;
+    battle.permaFrq = items.includes('frq') ? 0.12 : 0;
+    battle.permaCrit = items.includes('crit') ? 0.10 : 0;
+    battle.permaCd = items.includes('cd') ? 0.85 : 1;
+    battle.permaFury = items.includes('fury') ? 1 : 0;
+    battle.eliteDmg = items.includes('elite') ? 0.20 : 0;
+    if (items.includes('mantou')) run.mantou += 50;
+    if (items.includes('adou')) battle.adou.maxHp++;
+  }
+  function pickRewardItem(itemId) {
+    Save.addItem(itemId);
+  }
+  function replaceRewardItem(itemId, oldId) {
+    Save.replaceItem(oldId, itemId);
   }
 
   /* ================= 结算 ================= */
@@ -352,6 +353,8 @@ window.Game = (function () {
       isFirst: run.firstGame
     });
     run = null; battle = null;
+    // 每局结束 3 选 1 局间道具（叠在结算弹窗之上,选完可继续操作结算）
+    setTimeout(() => UI.showItemReward(), 400);
   }
 
   /* ================= 广告（体力恢复,纯 IAA 唯一广告点） ================= */
@@ -412,8 +415,9 @@ window.Game = (function () {
     init, startBattle, confirmItem,
     recruit, exchangeFrag,
     tileClick, spellClick, summon,
-    placeUnit, moveUnit, recallUnit, castUnit,
-    applyBoost, watchAd, checkSummonable, resume,
+    placeUnit, moveUnit, recallUnit,
+    applyBoost, pickRewardItem, replaceRewardItem,
+    watchAd, checkSummonable, resume,
     backToMenu, quitToMenu,
     get run() { return run; }, get battle() { return battle; }, get state() { return state; },
     get paused() { return paused; },

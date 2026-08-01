@@ -63,16 +63,16 @@ window.Engine = (function () {
   }
 
   class Unit {
-    constructor(gen, star, level) {
+    constructor(gen, level) {
       const g = CFG.GENERALS.find(x => x.name === gen);
-      this.gen = g; this.star = star || 1; this.level = level || 1;
-      this.exp = 0; this.kills = 0;
+      this.gen = g; this.level = level || 1;
+      this.attackCount = 0; this.kills = 0;   // 攻击次数 = 局内成长曲线（无升星）
       this.deployed = false; this.col = -1; this.row = -1;
       this.cd = 0; this.fury = 0;
       this.skillCd = 3;
       this.buffAtk = 0; this.buffFrq = 0;   // 自身临时 buff（占位,团队 buff 在 battle）
     }
-    baseAtk() { return this.gen.atk * CFG.STAR_MULT[this.star] * (1 + (this.level - 1) * CFG.LV_GROW); }
+    baseAtk() { return this.gen.atk * (1 + (this.level - 1) * CFG.LV_GROW); }
     baseFrq() { return this.gen.frq; }
     baseRge() { return this.gen.rge; }
     baseTargets() { return this.gen.targets; }
@@ -91,6 +91,9 @@ window.Engine = (function () {
       this.units = [];                  // 已部署武将
       this.adou = { hp: 3, maxHp: 3 };
       this.teamBuffs = { atkAdd: 0, frqAdd: 0, until: 0 };
+      // 局间道具常驻加成（由 game 开局按存档 items 设置）
+      this.permaAtk = 0; this.permaFrq = 0; this.permaCrit = 0;
+      this.permaCd = 1; this.permaFury = 0; this.eliteDmg = 0;
       this.over = false; this.result = null;
       this.popUsed = 0; this.popMax = 6;
       this.callbacks = {};
@@ -128,12 +131,9 @@ window.Engine = (function () {
       return !this.units.some(u => u.col === col && u.row === row);
     }
 
-    /* ---------- 战力（无羁绊，按任务 spec：职业克制×个人技能×站位） ---------- */
-    baseCrit() { return { rate: 0.12, dmg: 0.5 }; }
-    skillCdMult() {
-      // 诸葛亮个人被动：技能冷却 -15%
-      return this.units.some(u => u.gen.id === 'zhugeliang') ? 0.85 : 1;
-    }
+    /* ---------- 战力（无羁绊/无克制/无被动；局间道具常驻加成） ---------- */
+    baseCrit() { return { rate: 0.12 + this.permaCrit, dmg: 0.5 }; }
+    skillCdMult() { return this.permaCd; }
 
     /* ---------- 波次 ---------- */
     // 单怪血量：与 spawnMonster 生成完全一致（精英加成已含在 wc.hpMul，BOSS 额外 ×12）
@@ -247,22 +247,34 @@ window.Engine = (function () {
         const targets = this.pickTargets(u);
         if (targets.length) {
           u.cd = 1 / this.effFrq(u);
-          u.fury = Math.min(100, u.fury + 4 * targets.length);
+          u.fury = Math.min(100, u.fury + (4 + this.permaFury) * targets.length);
           u.attacking = this.time + 0.18;
           for (const t of targets) {
             const r = this.calcDmg(u, t);
             t.damage(r.dmg, u, this);
             this.emit('dmg', t, r.dmg, r.crit);
           }
+          // 局内成长：按攻击次数升级（无升星）
+          u.attackCount += targets.length;
+          const need = CFG.attackNeed(u.level);
+          if (u.attackCount >= need) {
+            u.attackCount -= need;
+            u.level++;
+            this.emit('levelUp', u);
+          }
         }
+      }
+      // 主动技能自动释放：满怒且冷却就绪
+      if (u.fury >= 100 && u.skillCd <= 0 && !this.over) {
+        this.castSkill(u);
       }
     }
 
     effAtk(u) {
-      return u.baseAtk() * (1 + this.teamBuffs.atkAdd + u.buffAtk);
+      return u.baseAtk() * (1 + this.teamBuffs.atkAdd + this.permaAtk + u.buffAtk);
     }
     effFrq(u) {
-      return u.baseFrq() * (1 + this.teamBuffs.frqAdd + u.buffFrq);
+      return u.baseFrq() * (1 + this.teamBuffs.frqAdd + this.permaFrq + u.buffFrq);
     }
     effRge(u) {
       return u.baseRge();
@@ -271,7 +283,8 @@ window.Engine = (function () {
     calcDmg(u, m) {
       const c = this.baseCrit();
       const crit = Math.random() < c.rate ? (1 + c.dmg) : 1;
-      const mult = CFG.dmgMult(u.gen.cls, m);
+      // 无职业克制；局间道具「破军印」对精英/BOSS 增伤
+      const mult = 1 + (this.eliteDmg && (m.elite || m.boss) ? this.eliteDmg : 0);
       return { dmg: Math.max(1, Math.round(this.effAtk(u) * mult * crit)), crit: crit > 1 };
     }
 
@@ -284,7 +297,7 @@ window.Engine = (function () {
       return inRange.slice(0, u.baseTargets());
     }
 
-    /* ---------- 阿斗 ---------- */
+    /* ---------- 阿斗（主君单位,卖血经济载体；英雄不承伤无回血） ---------- */
     hitAdou(m) {
       if (this.over) return;
       this.adou.hp -= 1;
@@ -294,23 +307,12 @@ window.Engine = (function () {
         this.finish('fail');
       }
     }
-    healAdou(v) {
-      this.adou.hp = Math.min(this.adou.maxHp, this.adou.hp + v);
-      this.emit('adouHeal', v);
-    }
 
     /* ---------- 事件（由 game 注入） ---------- */
     onArrive(m) { this.emit('arrive', m); }
     onMonsterKilled(m, attacker) {
       this.emit('kill', m, attacker);
       if (m.boss) this.emit('bossKill', m);
-      if (attacker) this.gainExp(attacker, m);
-    }
-    gainExp(u, m) {
-      const exp = 1 + Math.floor(this.wave / 3);
-      u.exp += exp;
-      const need = CFG.expNeed(u.level);
-      if (u.exp >= need) { u.exp -= need; u.level++; this.emit('levelUp', u); }
     }
 
     /* ---------- 技能 ---------- */
@@ -331,8 +333,12 @@ window.Engine = (function () {
           }
           break;
         }
-        case 'buff': {  // 曹操
-          this.teamBuffs.atkAdd += 0.30; this.teamBuffs.frqAdd += 0.20; this.teamBuffs.until = this.time + 5;
+        case 'buff': {  // 曹操 / 刘备（无回血,英雄不承伤）
+          if (u.gen.name === '刘备') {
+            this.teamBuffs.atkAdd += 0.20; this.teamBuffs.until = Math.max(this.teamBuffs.until, this.time + 5);
+          } else {
+            this.teamBuffs.atkAdd += 0.30; this.teamBuffs.frqAdd += 0.20; this.teamBuffs.until = this.time + 5;
+          }
           this.emit('skillFx', u, 'buff');
           break;
         }
@@ -361,12 +367,6 @@ window.Engine = (function () {
             const d = t.damage(atk * 3.5, u, this);
             this.emit('skillFx', u, 'aoe', t, d);
           }
-          break;
-        }
-        case 'heal': {   // 刘备
-          this.teamBuffs.atkAdd += 0.15; this.teamBuffs.until = Math.max(this.teamBuffs.until, this.time + 5);
-          this.healAdou(1);
-          this.emit('skillFx', u, 'heal');
           break;
         }
         case 'stun': {   // 张飞

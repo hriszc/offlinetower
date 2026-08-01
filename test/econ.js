@@ -62,7 +62,7 @@ function simulate(strategyName, opts) {
     while (depIdx < DEPLOY_ORDER.length) {
       const [col, row] = DEPLOY_ORDER[depIdx];
       if (battle.canPlace(col, row)) {
-        battle.deploy(new Engine.Unit(item.name, item.star, 1), col, row);
+        battle.deploy(new Engine.Unit(item.name, item.level), col, row);
         bench.shift();
         depIdx++;
         return;
@@ -138,10 +138,8 @@ function simulate(strategyName, opts) {
     if (g && mantou >= CFG.ECONOMY.summonCost) {
       mantou -= CFG.ECONOMY.summonCost;
       spell = [null, null, null];
-      if (bench.some(b => b.name === g.name)) {
-        bench.find(b => b.name === g.name).star++;
-      } else {
-        bench.push({ name: g.name, star: 1, level: 1, exp: 0, kills: 0 });
+      if (!bench.some(b => b.name === g.name)) {
+        bench.push({ name: g.name, level: 1, attackCount: 0, kills: 0 });
       }
     } else if (g) {
       // 拼齐但钱不够 → 等待卖血攒钱
@@ -154,7 +152,7 @@ function simulate(strategyName, opts) {
     battle.update(0.05);
     t += 0.05;
   }
-  const names = battle.units.map(u => u.gen.name + '★' + u.star + 'L' + u.level);
+  const names = battle.units.map(u => u.gen.name + 'L' + u.level);
   const summoned = bench.length + battle.units.length;
   console.log(`[${strategyName}] result=${battle.result} wave=${battle.wave} time=${t.toFixed(0)}s ` +
     `召唤=${summoned}人 场上=[${names.join(',')}] 馒头=${mantou} 抽卡=${drawCount}次 碎片=${frags}`);

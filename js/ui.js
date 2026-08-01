@@ -79,7 +79,8 @@ window.UI = (function () {
     $('#menu-stamina').textContent = Save.stamina();
     $('#menu-wl').textContent = d.today.wins + '-' + d.today.loses + '(' + Save.winRate() + '%)';
     const map = Save.mapOfToday();
-    $('#menu-map').textContent = '今日地图:' + map.name + ' · ' + map.desc;
+    $('#menu-map').textContent = '今日地图:' + map.name + ' · ' + map.desc +
+      (Save.items().length ? ' · 道具:' + Save.items().map(id => CFG.ITEM_BOOSTS.find(x => x.id === id).name).join('/') : '');
   }
 
   /* ================= 进入对局 ================= */
@@ -233,13 +234,12 @@ window.UI = (function () {
   function makeGenCard(g, info) {
     const d = document.createElement('div');
     d.className = 'gen-card ' + g.quality.toLowerCase();
-    const st = Math.max(0, info.star || 0);           // 图鉴未收集 star=0 → 0 实心星
-    const stars = '★'.repeat(st) + '☆'.repeat(5 - st);
+    // 无星级：板凳卡显示等级,图鉴卡显示收集状态
+    const sub = info && info.owned ? '已收集' : ('Lv.' + (info && info.level || 1));
     d.innerHTML =
       '<div class="gc-name">' + g.name + '</div>' +
       '<div class="gc-cls">' + CFG.CLS_NAMES[g.cls] + (g.quality === 'SSR' ? ' · 传奇' : ' · 史诗') + '</div>' +
-      '<div class="gc-star">' + stars + '</div>' +
-      '<div class="gc-lv">Lv.' + (info.level || 1) + '</div>' +
+      '<div class="gc-lv">' + sub + '</div>' +
       '<div class="gc-skill">技:' + g.skill.name + '</div>';
     return d;
   }
@@ -267,7 +267,7 @@ window.UI = (function () {
           if (ev.button !== 0) return;
           ev.preventDefault();
           ev.stopPropagation();
-          // 按下即拖拽;松手时若未移动且满怒 → 释放技能
+          // 技能自动释放,无点击交互：按下即拖拽（换位 / 拖回板凳召回）
           startDrag({ type: 'unit', uid: uid, el: el, ev: ev });
         });
         boardEl.appendChild(el);
@@ -280,15 +280,8 @@ window.UI = (function () {
       face.innerHTML = u.gen.name;
       face.style.background = u.gen.quality === 'SSR' ? 'linear-gradient(160deg,#b8860b,#8a5a00)' : 'linear-gradient(160deg,#5a6f9e,#3f5280)';
       face.style.fontSize = u.gen.name.length >= 3 ? 'clamp(11px,1.6vw,17px)' : 'clamp(13px,2.2vw,24px)';
-      const star = el.querySelector('.u-star');
-      if (!star) {
-        const s = document.createElement('div');
-        s.className = 'u-star';
-        el.appendChild(s);
-      }
-      el.querySelector('.u-star').textContent = '★'.repeat(u.star);
       el.querySelector('.u-fury i').style.width = Math.min(100, u.fury) + '%';
-      el.classList.toggle('ready-fury', u.fury >= 100 && u.skillCd <= 0);
+      el.classList.toggle('ready-fury', u.fury >= 100 && u.skillCd <= 0);   // 满怒高亮 = 即将自动释放
       el.classList.toggle('attacking', !!u.attacking && battle.time < u.attacking);
       const lv = el.querySelector('.u-lv');
       if (u.level > 1) {
@@ -422,8 +415,7 @@ window.UI = (function () {
     if (d.ghost) { d.ghost.remove(); }
     benchZoneEl.classList.remove('bench-recalling');
     if (!d.moved) {
-      // 未移动:棋盘武将视为点击 → 释放技能
-      if (d.type === 'unit') Game.castUnit(d.uid);
+      // 技能自动释放：未移动的武将点击不触发任何操作（仅拖拽有效）
       return;
     }
     const p = boardPos(ev);
@@ -476,23 +468,8 @@ window.UI = (function () {
     if (type === 'aoe' || type === 'single' || type === 'stun') spawn('boom', m ? fxPos(m) : center, 0);
     if (type === 'dash') for (let i = 0; i < 3; i++) spawn('boom', { left: center.left, top: center.top }, i * 0.08);
     if (type === 'dot') for (let i = 0; i < 8; i++) spawn('flame', { left: (8 + Math.random() * 84) + '%', top: (8 + Math.random() * 84) + '%' }, i * 0.1);
-    if (type === 'heal') {
-      const el = document.createElement('div');
-      el.className = 'dmg-float heal';
-      el.textContent = '+1 ❤';
-      el.style.left = ((6.5) / Game.BOARD_COLS * 100) + '%';
-      el.style.top = ((Game.ADOU_ROW + 0.5) / Game.BOARD_ROWS * 100) + '%';
-      boardEl.appendChild(el);
-      setTimeout(() => el.remove(), 950);
-    }
   }
   function adouHurt() {
-    if (!adouEl) return;
-    adouEl.classList.remove('hurt');
-    void adouEl.offsetWidth;
-    adouEl.classList.add('hurt');
-  }
-  function adouHeal() {
     if (!adouEl) return;
     adouEl.classList.remove('hurt');
     void adouEl.offsetWidth;
@@ -655,7 +632,7 @@ window.UI = (function () {
       1: { t: '首战教学 · 拼字召唤', b: '<b>字牌</b>已送你「赵」「云」,点击下方字牌放入拼字槽', a: '▼' },
       2: { t: '首战教学 · 拼字召唤', b: '拼字槽凑齐 <b>赵+云</b>,点亮「召唤」按钮并点击,即可召唤 <b>赵云</b>', a: '▼' },
       3: { t: '首战教学 · 布阵', b: '召唤出的武将会出现在下方武将栏。<b>按住武将拖到棋盘</b>布阵,越靠前越早接敌', a: '▼' },
-      4: { t: '首战教学 · 作战', b: '武将自动攻击,攒满怒气后<b>点击棋盘上的武将</b>释放技能。守住阿斗,比对手坚持更久！', a: '▶ 开战' }
+      4: { t: '首战教学 · 作战', b: '武将自动攻击攒怒气,<b>满怒自动释放技能</b>;攻击命中积累局内成长自动升级。守住阿斗,比对手坚持更久！', a: '▶ 开战' }
     };
     const s = steps[Math.min(step, 4)];
     if (!s) return;
@@ -673,18 +650,75 @@ window.UI = (function () {
     let owned = 0;
     CFG.GENERALS.forEach(g => {
       const saved = Save.load().generals[g.name];
-      const card = makeGenCard(g, saved || { star: 0, level: 1 });
+      const card = makeGenCard(g, { owned: !!saved, level: 1 });
       if (saved) { owned++; card.querySelector('.gc-name').style.color = '#7c2118'; }
       else {
         card.style.filter = 'grayscale(.85)';
         card.classList.add('not-owned');
       }
-      if (saved && saved.star > 0) {
-        card.innerHTML += '<div class="gc-own">' + saved.star + '</div>';
-      }
       grid.appendChild(card);
     });
     $('#gallery-count').textContent = owned + '/10 已收集';
+  }
+
+  /* ================= 局间道具（每局结束 3 选 1,最多 6 个、可替换） ================= */
+  function showItemReward() {
+    const list = Save.items();
+    const full = list.length >= CFG.ITEM_BOOST_MAX;
+    const pool = CFG.ITEM_BOOSTS.filter(b => !list.includes(b.id));
+    const picks = [];
+    while (picks.length < 3 && pool.length) {
+      picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    }
+    const listHtml = list.length
+      ? '<div class="reward-line">当前道具(' + list.length + '/' + CFG.ITEM_BOOST_MAX + '):' +
+        list.map(id => { const b = CFG.ITEM_BOOSTS.find(x => x.id === id); return '<b>' + b.name + '</b>'; }).join(' ') + '</div>'
+      : '<div class="reward-line">道具栏(0/' + CFG.ITEM_BOOST_MAX + ')</div>';
+    modal('<h2>局间道具</h2>' +
+      '<p>每局结束三选一,最多 6 个、可替换</p>' +
+      listHtml +
+      '<div class="choice-grid">' +
+      picks.map(b => '<button class="choice-item" data-pick="' + b.id + '">' +
+        '<div class="ci-title">' + b.name + '</div><div class="ci-desc">' + b.desc + '</div></button>').join('') +
+      (full ? '<button class="choice-item" data-pick="__skip__"><div class="ci-title">放弃</div><div class="ci-desc">道具栏已满,放弃本次奖励</div></button>' : '') +
+      '<button class="choice-item" data-pick="__skip__"><div class="ci-title">放弃</div><div class="ci-desc">暂不领取</div></button>' +
+      '</div>');
+    $('#modal-content').querySelectorAll('[data-pick]').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.dataset.pick;
+        if (id === '__skip__') { closeModal(); return; }
+        if (list.length >= CFG.ITEM_BOOST_MAX) {
+          // 满 6 个：先选要替换的旧道具
+          closeModal();
+          showItemReplace(id);
+        } else {
+          Game.pickRewardItem(id);
+          closeModal();
+          UI.toast('获得局间道具「' + CFG.ITEM_BOOSTS.find(x => x.id === id).name + '」', 'gold');
+        }
+      });
+    });
+  }
+  function showItemReplace(newId) {
+    const list = Save.items();
+    modal('<h2>替换道具</h2>' +
+      '<p>道具栏已满,选择要替换的旧道具</p>' +
+      '<div class="choice-grid">' +
+      list.map(id => { const b = CFG.ITEM_BOOSTS.find(x => x.id === id);
+        return '<button class="choice-item" data-replace="' + id + '">' +
+          '<div class="ci-title">' + b.name + '</div><div class="ci-desc">' + b.desc + '</div></button>'; }).join('') +
+      '<button class="choice-item" data-replace="__cancel__"><div class="ci-title">取消</div></button>' +
+      '</div>');
+    $('#modal-content').querySelectorAll('[data-replace]').forEach(b => {
+      b.addEventListener('click', () => {
+        const oldId = b.dataset.replace;
+        if (oldId === '__cancel__') { closeModal(); return; }
+        if (Game.replaceRewardItem(oldId, newId)) {
+          UI.toast('已用「' + CFG.ITEM_BOOSTS.find(x => x.id === newId).name + '」替换「' + CFG.ITEM_BOOSTS.find(x => x.id === oldId).name + '」', 'gold');
+        }
+        closeModal();
+      });
+    });
   }
 
   /* ================= 渲染循环 ================= */
@@ -711,7 +745,8 @@ window.UI = (function () {
     enterBattle, refresh, renderBattle,
     setSummonable, showItemPick, showBoostPick,
     showStaminaModal, showAd, showSettle, showTutor,
-    dmgFx, boltFx, skillFx, adouHurt, adouHeal,
+    showItemReward,
+    dmgFx, boltFx, skillFx, adouHurt,
     tip, toast, hint, modal, closeModal
   };
 })();
