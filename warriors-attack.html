@@ -1509,7 +1509,9 @@ const HEROES=[
 ];
 
 /* ================= 启动与切换 ================= */
+let autoSeq=0; // 自动轮播排队 token：任何手动切换都会使其失效
 function startHero(i){
+  const mySeq=++autoSeq; // 本次演出专属 token，覆盖所有排队的自动切换
   const h=HEROES[i];
   state.idx=i; state.hero=h; state.playing=true;
   _heroStartT=state.t;
@@ -1526,7 +1528,11 @@ function startHero(i){
   h.play=makePlay(h);
   gs.finish=()=>{
     state.playing=false;
-    if(state.auto) setTimeout(()=>startHero((state.idx+1)%HEROES.length),1100);
+    if(state.auto){
+      const seq=++autoSeq; // 以当前时刻为准的新排队 token（期间任何手动切换/关auto都会使旧 token 失效）
+      const next=(state.idx+1)%HEROES.length;
+      setTimeout(()=>{ if(autoSeq===seq) startHero(next); },1100);
+    }
   };
 }
 function buildBar(){
@@ -1550,6 +1556,12 @@ function updateBar(){
 $('#auto-switch').addEventListener('click',()=>{
   state.auto=!state.auto;
   $('#auto-switch').classList.toggle('on',state.auto);
+  if(!state.auto){
+    autoSeq++; // 关闭自动轮播：取消所有排队中的自动切换
+  }else if(!state.playing){
+    // 重新开启时若当前演出已结束，续播下一个
+    setTimeout(()=>{ if(state.auto && !state.playing) startHero((state.idx+1)%HEROES.length); },600);
+  }
 });
 $('#btn-replay').addEventListener('click',()=>startHero(state.idx));
 
