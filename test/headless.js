@@ -132,6 +132,17 @@ console.log('--- 技能自动释放 / 局内攻击升级 / 局间道具（回归
   b5.permaAtk = 0.15; b5.permaFrq = 0.12; b5.permaCrit = 0.10; b5.permaCd = 0.85;
   assert(b5.effAtk(zf5) > a0 * 1.14, '局间道具攻击加成生效');
   assert(b5.skillCdMult() === 0.85, '局间道具冷却缩减生效');
+  // 道具替换参数序（回归满 6 替换 bug:replaceItem(旧,新)）
+  const sv = Save;
+  sv.addItem('atk');
+  assert(sv.items().join() === 'atk', 'addItem 生效');
+  assert(sv.replaceItem('atk', 'frq') === true, 'replaceItem(旧,新) 替换成功');
+  assert(sv.items().join() === 'frq', '替换后持有正确');
+  assert(sv.replaceItem('不存在', 'zz') === false, '不存在的旧道具替换失败');
+  // 满血开局语义:上限类加成后 hp 应同步（虎符/铁壁实际生效,非空头上限）
+  const b6 = new Engine.Battle(CFG.MAPS[0], {});
+  b6.adou.maxHp += 2; b6.adou.hp = b6.adou.maxHp;
+  assert(b6.adou.hp === b6.adou.maxHp, '上限类道具后满血开局');
 }
 
 console.log('--- 机器人分层（genWaves 层内均值,方案 §5.4 参数） ---');

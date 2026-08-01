@@ -730,7 +730,7 @@ window.UI = (function () {
       b.addEventListener('click', () => {
         const oldId = b.dataset.replace;
         if (oldId === '__cancel__') { closeLayer.close(); return; }
-        if (Game.replaceRewardItem(oldId, newId)) {
+        if (Game.replaceRewardItem(newId, oldId)) {   // 参数序:新道具在前,旧道具在后（与 game 签名一致）
           UI.toast('已用「' + CFG.ITEM_BOOSTS.find(x => x.id === newId).name + '」替换「' + CFG.ITEM_BOOSTS.find(x => x.id === oldId).name + '」', 'gold');
         }
         closeLayer.close();

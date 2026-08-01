@@ -12,11 +12,13 @@ window.Game = (function () {
   let battle = null;           // Engine.Battle
   let run = null;              // 本局数据
   let paused = false;
+  let settlePending = false;   // 结算后道具弹层守卫（玩家快速操作时不再错弹）
   let rafId = 0, lastTs = 0;
   let monsterSeq = 0;
 
   /* ================= 开局 ================= */
   function startBattle() {
+    settlePending = false;
     if (Save.stamina() < 1) {
       UI.showStaminaModal();
       return;
@@ -45,11 +47,12 @@ window.Game = (function () {
       firstGame: !Save.load().firstGameDone
     };
     // 开局军备效果
-    if (itemId === 'shield') { battle.adou.maxHp += 2; battle.adou.hp = battle.adou.maxHp; run.mantou -= 5; }
+    if (itemId === 'shield') { battle.adou.maxHp += 2; run.mantou -= 5; }
     if (itemId === 'food') run.mantou += 40;
     if (itemId === 'levy') run.levyLeft = 3;
     // 局间道具（每局结束 3 选 1,最多 6 个）作用于本局
     applyPersistItems();
+    battle.adou.hp = battle.adou.maxHp;   // 军备+道具合计后满血开局（虎符等上限类道具实际生效）
     // 首局：送「赵」「云」+ 额外馒头,教学引导；正常局：赠送随机 2 字武将全套字牌（保证首将可守）
     if (run.firstGame) {
       run.mantou += CFG.ECONOMY.firstGameMantou;
@@ -309,8 +312,8 @@ window.Game = (function () {
   function pickRewardItem(itemId) {
     Save.addItem(itemId);
   }
-  function replaceRewardItem(itemId, oldId) {
-    Save.replaceItem(oldId, itemId);
+  function replaceRewardItem(newId, oldId) {
+    return Save.replaceItem(oldId, newId);
   }
 
   /* ================= 结算 ================= */
@@ -353,8 +356,12 @@ window.Game = (function () {
       isFirst: run.firstGame
     });
     run = null; battle = null;
-    // 每局结束 3 选 1 局间道具（叠在结算弹窗之上,选完可继续操作结算）
-    setTimeout(() => UI.showItemReward(), 400);
+    // 每局结束 3 选 1 局间道具（独立弹窗层叠在结算之上；守卫防玩家已点「再来一局/回主城」后错弹）
+    settlePending = true;
+    setTimeout(() => {
+      if (settlePending) UI.showItemReward();
+      settlePending = false;
+    }, 400);
   }
 
   /* ================= 广告（体力恢复,纯 IAA 唯一广告点） ================= */
@@ -383,14 +390,14 @@ window.Game = (function () {
   /* ================= 导航 ================= */
   function backToMenu() {
     state = 'menu';
-    run = null; battle = null; paused = false;
+    run = null; battle = null; paused = false; settlePending = false;
     UI.enterMenu();
   }
   function resume() { paused = false; }
   function quitToMenu() {
     // 中途撤退（不结算奖励,体力已消耗）
     state = 'menu';
-    run = null; battle = null; paused = false;
+    run = null; battle = null; paused = false; settlePending = false;
     UI.enterMenu();
   }
 
