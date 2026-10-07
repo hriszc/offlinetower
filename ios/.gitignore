@@ -1,0 +1,10 @@
+# XcodeGen 生成物，`xcodegen generate` 随时可重建
+ZombieKnock.xcodeproj/
+
+# 由 tools/build_ios.js 从仓库根目录收口而来，不是源文件
+Resources/web/
+
+# 构建产物
+DerivedData/
+xcuserdata/
+*.xcuserdatad/

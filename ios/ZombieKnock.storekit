@@ -1,0 +1,45 @@
+{
+  "identifier" : "A9F3C1D2-77B4-4E61-9C08-2D5A6E7B1F30",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "5C1E8A44-2B77-4D0F-8E31-6A9C0B7D4E52",
+      "localizations" : [
+        {
+          "description" : "一次买断：永久不限局，想玩几局玩几局。",
+          "displayName" : "无限畅玩",
+          "locale" : "zh_CN"
+        },
+        {
+          "description" : "One-time unlock: unlimited matches, forever.",
+          "displayName" : "Unlimited Matches",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.zequnhuang.zombieknock.unlimited",
+      "referenceName" : "Unlimited Matches",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "zh_CN",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

@@ -1,0 +1,16 @@
+.DS_Store
+output/
+node_modules/
+.wrangler/
+.env
+.env.*
+*.p8
+*.pem
+*.key
+*.mobileprovision
+*.ipa
+ios/ZombieKnock.xcodeproj/
+ios/Resources/web/
+ios/DerivedData/
+ios/xcuserdata/
+*.xcuserdatad/

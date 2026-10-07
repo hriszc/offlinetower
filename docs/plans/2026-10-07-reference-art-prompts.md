@@ -1,0 +1,34 @@
+# 正式插画素材与生成记录
+
+使用内置 imagegen 工具，参考已确认的六界面图 `output/imagegen/ui-all-ages-reference-v1.png`；未使用CLI/API密钥。三次生成均用于本工程，原图保留在 assets/，正式资源经过JPEG/WebP编码压缩。
+
+## 首页
+
+原图：[ui-home-scene-v1.png](/Users/zhaochen/Downloads/2609/微恐小游戏/assets/ui-home-scene-v1.png)
+运行资源：[ui-home-scene-v1.jpg](/Users/zhaochen/Downloads/2609/微恐小游戏/assets/ui-home-scene-v1.jpg)
+
+生成提示词：
+
+Use case: illustration-story. Asset type: production background illustration for a 16:9 mobile tower-defense game's homepage. The attached six-screen image is the approved STYLE AND COMPOSITION REFERENCE, especially its top-left homepage. Create only one wide landscape illustration, closely matching that top-left scene's rich but simple children's storybook cartoon painting, substantial dark navy outlines, warm glowing golden light, layered blue forest, stone path and dense rounded bushes. On the LEFT third: a cozy wooden cottage with peaked slate roof, amber arched attic window, welcoming wooden doorway and lantern, partial fence, and friendly woodland heroes at the doorstep: seated brown bear with small round ears and tiny dot eyes, white long-eared rabbit with red scarf, slate-blue pigeon, and seated orange fox with cream chest and fluffy tail. They should resemble the illustrated reference, no enormous eyes. Center-right: winding cobbled pathway, small distant blue-roof cottage, 4 small adorable green zombies in the background (friendly non-gory), soft narrow orange magical rift, moon and dark pine forest. The foreground is rich mossy blue-green grass, rounded plants and soft stones. IMPORTANT UI SAFE AREAS: upper middle/right and middle-right must remain calm dark navy/blue negative space, suitable for a big title and two interactive buttons added later by code. Keep the heroes left and low, and zombies small distant. Scene fills entire image edge-to-edge, no panels, no frames, no borders, NO TEXT, NO LOGO, NO LETTERS, NO BUTTONS, NO UI, NO NUMBERS. Not a collage. Crisp polished layered 2D painted cartoon art, exactly the visual richness of the reference. Natural 16:9 widescreen composition, high resolution.
+
+## 战场
+
+原图：[ui-battle-scene-v1.png](/Users/zhaochen/Downloads/2609/微恐小游戏/assets/ui-battle-scene-v1.png)
+运行资源：[ui-battle-scene-v1.jpg](/Users/zhaochen/Downloads/2609/微恐小游戏/assets/ui-battle-scene-v1.jpg)
+
+生成提示词：
+
+Use case: illustration-story. Asset type: actual playable tower-defense battlefield BACKGROUND, wide landscape 16:9. Match the lower-left and middle-right battlefield artwork in the attached approved UI reference very closely: richly layered 2D children's storybook cartoon, dark navy outlines, nighttime deep-blue pine forest, teal mossy ground, rounded foliage, scattered stepping stones, welcoming amber lighting, polished painted shading. Important composition for a real game: central playable area from x=15% to x=85%, y=12% to y=86% must be mostly unobstructed flat dark teal lawn with very subtle sparse broad stone slabs, calm surface, no trees or buildings inside it. A cozy cottage at the VERY LEFT EDGE, clipped slightly by image edge, occupies x=0..13% and y=30..76%, with warm wood porch, slate peaked roof, glowing amber windows, lanterns and small fence. A mirrored blue cottage at the VERY RIGHT EDGE occupies x=87..100% and y=30..76%, blue pitched roof and glowing warm windows. Top 12% distant layered dark blue pine forest and light moonlit sky. Bottom 12% dense soft blue-green bushes, rounded rocks and small yellow flowers. A small unobstructed central corridor at x=48..52% for a rift added later by code. NO CHARACTERS, NO ANIMALS, NO ZOMBIES, NO RIFT, NO UI, NO ICONS, NO GRID, NO TEXT, NO LETTERS, NO PANELS, NO LOGOS. This is one full scene, NOT a mockup or collage. Ground should remain readable under game units, houses and foliage warmly detailed like the reference. Substantial cozy forest atmosphere, avoid plain geometric shapes or flat empty blue background.
+
+## 动物图集
+
+原图：[ui-animal-atlas-v1.png](/Users/zhaochen/Downloads/2609/微恐小游戏/assets/ui-animal-atlas-v1.png)
+运行资源：[ui-animal-atlas-v1.webp](/Users/zhaochen/Downloads/2609/微恐小游戏/assets/ui-animal-atlas-v1.webp)
+
+生成提示词：
+
+Use case: stylized-concept. Asset type: ONE production sprite atlas for a mobile game, transparent background, 4 columns x 6 rows of equal square cells (portrait 2:3 canvas), 22 isolated full-body animal sprites plus two EMPTY final cells. Style reference: the top-middle partner-selection animals in the attached image, exactly that polished children's storybook cartoon, dark warm-brown outlines, warm soft painted cel shading, tiny dot eyes, rounded charming proportions, clean readable full silhouettes, no huge white cartoon eyes. Match the bear, fox, rabbit and glowing firefly especially closely. Each sprite must be entirely INSIDE its own cell with at least 15% transparent margin around ears/tails/wings; centered, mostly facing right in natural seated/standing/flight pose, paws or lowest part resting near the cell bottom. No sprites touch or overlap cell boundaries. NO TEXT, NO LABELS, NO GRID LINES, NO PANELS, NO SHADOWS, NO BACKGROUND, no props except rabbit's red scarf and firefly's yellow glowing abdomen. Exact row-by-row ordered atlas layout: ROW 1: seated brown bear with round ears and two short forepaws; rounded brown porcupine with distinct cream quills and small face; seated gray-blue raccoon with black eye mask and striped fluffy tail; dark-headed yellow glowing firefly with small wings. ROW 2: seated bright orange fox with cream chest and large fluffy white-tipped tail; friendly teal electric eel in upright S curve with tiny fins; natural brown hawk standing with connected neck, folded wing and short beak; green snake coiled with lifted friendly head. ROW 3: small white rabbit with long ears and red scarf; gentle gray-brown seated gorilla with broad chest and large arms; compact gray-blue rhinoceros on four feet with one cream horn; purple bat in connected wing-membrane flying pose. ROW 4: seated gray-blue wolf with cream chest and bushy tail; round brown owl standing with cream face and folded connected wings; squat brown boar on four feet with small tusks; green chameleon on tiny legs with curly tail. ROW 5: small blue-gray elephant on four feet with big ears and curled trunk; squat green frog with natural back legs and toe feet; yellow and black bee with small wings; low green turtle with clear rounded shell. ROW 6: orange tiger on four feet with soft dark stripes and long tail; red-orange phoenix bird standing with a small flame crest and long warm tail feathers; EMPTY transparent cell; EMPTY transparent cell. All animals should be friendly, appealing to every age and visually cohesive. Sprite atlas ONLY, one image, genuinely transparent alpha background.
+
+## 运行资源
+
+`node tools/build_art_assets.js` 将压缩战场与透明图集写入 `js/art_assets.js`。data URL 解决 Chrome 直接打开 file:// 图片时 Canvas 无法读取像素的问题；H5/iOS/小工具使用相同资源脚本。新增和压缩资源都在唯一清单 `tools/pack_manifest.js` 中收口；ZIP只包含当前清单，旧版本插画不混入包。

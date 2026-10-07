@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 导出 App Store 分发 IPA。teamID 是付费团队（Zequn Huang，见 docs/appstore/README.md）。
+	     destination 用 export 而不是 upload：导出产物先落盘校验签名，再用 altool + ASC API 密钥上传，
+	     这样不依赖 Xcode 里登录的 Apple ID（那条路会报 No provider associated with App Store Connect user）。 -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>9ZKSMS97F3</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>

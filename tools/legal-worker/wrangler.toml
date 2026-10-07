@@ -1,0 +1,10 @@
+name = "zombieknock-legal"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# 自定义域名。挂自有域名是为了绕开 *.workers.dev 的 DNS 污染 ——
+# 大陆网络解析 workers.dev 会拿到 Dropbox 的 IP，页面根本打不开，
+# 而 App Store 的隐私政策 URL 要求公网可访问。
+routes = [
+  { pattern = "legal.pikafun.com", custom_domain = true }
+]
