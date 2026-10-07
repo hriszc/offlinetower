@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cover</title>
+<style>html,body{margin:0;background:#05070a;color:#8a949c;font:12px/1.6 monospace}#cover{display:block;width:1024px;height:768px}</style>
+</head>
+<body>
+<canvas id="cover"></canvas>
+<script src="../js/config.js"></script>
+<script src="../js/render.js"></script>
+<script>
+/* 4:3 封面绘制：复用游戏自身的 drawHome / drawZombie，保证与游戏美术完全一致。
+   输出母版 2048×1536，交给 tools/make_cover.js 导出 PNG。 */
+(function () {
+  'use strict';
+
+  var W = 2048, H = 1536;                    // 4:3
+  var TITLE = '僵尸在敲门';
+  var TAGLINE = '和动物伙伴一起，守住今晚的家园';
+
+  var cv = document.getElementById('cover');
+  cv.width = W; cv.height = H;
+  var ctx = cv.getContext('2d');
+
+  Render.canvas = cv;
+  Render.ctx = ctx;
+  Render.W = W; Render.H = H;
+  Render.scale = 1; Render.offX = 0; Render.offY = 0;
+  Render.damageFlash = { p: 0, g: 0 };
+  Render.buildStatics();
+
+  var rnd = mulberry32(20260922);
+
+  /* ---------- 构图常量（按 2048×1536 设计坐标书写） ---------- */
+  var GROUND = 1050;                         // 房子地基所在的地平线
+  var HOUSE_S = 2.35;                        // 房子放大倍数
+  var WALL_TOP = Math.round(CONFIG.TOP_H + (CONFIG.BOTTOM_Y - CONFIG.TOP_H) * 0.39);
+  var WALL_BOT = WALL_TOP + 162;
+  var HOFF = 160 - 6 * HOUSE_S;               // 世界 x=6 → 封面 x=160
+  var VOFF = GROUND - WALL_BOT * HOUSE_S;     // 世界 y=WALL_BOT → 封面 y=GROUND
+  function hx(wx) { return HOFF + wx * HOUSE_S; }
+  function hy(wy) { return VOFF + wy * HOUSE_S; }
+
+  var DOOR = { x: hx(62), y: hy(WALL_BOT - 56), w: 40 * HOUSE_S, h: 56 * HOUSE_S };
+  var HOUSE_R = hx(158);
+  var RIFT_X = 1180, RIFT_TOP = 470, RIFT_BOT = 1090;
+
+  /* 透视：脚底越靠近镜头，体型越大。幂次压制，避免前景怪物爆掉。 */
+  var H0 = 700;
+  function zScale(feetY) {
+    return HOUSE_S * Math.pow((feetY - H0) / (GROUND - H0), 0.72);
+  }
+
+  /* ---------- 怪物 ---------- */
+  var POSE_KNOCK = [0.30, 0.90, 0.30, 0.60]; // 抡起来砸门的那一瞬
+  var POSE_SMASH = [0.34, 0.90, 0.52, 0.60];
+
+  /* 变暗仍返回 hex：drawZombie 内部会对 tint 再调 lighten()。 */
+  function shade(hex, amt) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = Math.max(0, Math.min(255, ((n >> 16) & 255) + 255 * amt)) | 0;
+    var g = Math.max(0, Math.min(255, ((n >> 8) & 255) + 255 * amt)) | 0;
+    var b = Math.max(0, Math.min(255, (n & 255) + 255 * amt)) | 0;
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
+  function mz(o) {
+    var d = ZOMBIES[o.type];
+    var s = o.scale || zScale(o.feetY);
+    var R = d.r * 1.32 * s;
+    // 越靠前越接近剪影：夜景里前景本来就不该被照亮
+    var near = Math.max(0, Math.min(1, (o.feetY - 1100) / 400));
+    var z = {
+      x: o.x, y: o.feetY - R * 1.02, r: d.r, scale: s,
+      tint: shade(d.tint, -(0.24 + 0.17 * near)), type: o.type,
+      phase: o.phase || 0, side: 'p',
+      attackT: 0, attackTotal: 1, attackHitT: 0, attackHitTotal: 1,
+      hp: 1, maxHp: 1, slowT: 0, flash: 0
+    };
+    if (o.pose) {
+      z.attackT = o.pose[0]; z.attackTotal = o.pose[1];
+      z.attackHitT = o.pose[2]; z.attackHitTotal = o.pose[3];
+    }
+    return z;
+  }
+
+  /* 游戏里的眼睛辉光按 48px 精灵绘制，放大后糊成一团；换成核心更紧的版本。 */
+  (function tightenEyeGlow() {
+    ['#ff3a1e', '#ffd24a'].forEach(function (color) {
+      var size = 48;
+      var c = document.createElement('canvas');
+      c.width = c.height = size;
+      var g = c.getContext('2d');
+      var grd = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+      grd.addColorStop(0, color);
+      grd.addColorStop(0.22, Render.rgba(color, 0.55));
+      grd.addColorStop(0.5, Render.rgba(color, 0.14));
+      grd.addColorStop(1, Render.rgba(color, 0));
+      g.fillStyle = grd;
+      g.fillRect(0, 0, size, size);
+      Render.glowCache[color + '|48'] = c;
+    });
+  })();
+
+  /* ---------- 1. 天空 + 地平线雾 ---------- */
+  function sky() {
+    var g = ctx.createLinearGradient(0, 0, 0, GROUND + 160);
+    g.addColorStop(0, '#04060b');
+    g.addColorStop(0.34, '#080c13');
+    g.addColorStop(0.66, '#101620');
+    g.addColorStop(0.88, '#1a1f27');
+    g.addColorStop(1, '#23272d');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, GROUND + 160);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    var rg = ctx.createRadialGradient(RIFT_X, 740, 0, RIFT_X, 740, 820);
+    rg.addColorStop(0, 'rgba(255,96,44,0.20)');
+    rg.addColorStop(0.45, 'rgba(178,44,22,0.085)');
+    rg.addColorStop(1, 'rgba(120,20,10,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    var fg = ctx.createLinearGradient(0, GROUND - 240, 0, GROUND + 220);
+    fg.addColorStop(0, 'rgba(150,170,190,0)');
+    fg.addColorStop(0.5, 'rgba(150,170,190,0.055)');
+    fg.addColorStop(0.75, 'rgba(126,146,170,0.115)');
+    fg.addColorStop(1, 'rgba(126,146,170,0)');
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, GROUND - 240, W, 460);
+  }
+
+  /* ---------- 2. 裂隙：折线状裂口 + 辉光 + 火星 ---------- */
+  function rift() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.30;
+    ctx.drawImage(Render.glow('#ff3a1e', 512), RIFT_X - 470, 770 - 470, 940, 940);
+    ctx.globalAlpha = 0.20;
+    ctx.drawImage(Render.glow('#ff8a3a', 512), RIFT_X - 280, 820 - 280, 560, 560);
+    ctx.restore();
+
+    var nodes = [];
+    for (var y = RIFT_TOP; y <= RIFT_BOT; y += 52 + rnd() * 42) {
+      nodes.push({ y: y, x: RIFT_X + (rnd() - 0.5) * 56, w: 13 + rnd() * 36 });
+    }
+    var last = nodes[nodes.length - 1];
+    nodes.push({ y: last.y + 48, x: RIFT_X + (rnd() - 0.5) * 30, w: 9 });
+    nodes[0].w = 11;
+    for (var i = 0; i < nodes.length; i++) {
+      var bulge = Math.sin(Math.PI * Math.min(1, i / (nodes.length - 1)));
+      nodes[i].w *= 0.45 + 0.85 * bulge;
+      if (i === Math.round((nodes.length - 1) / 2)) nodes[i].w *= 1.45;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(nodes[0].x - nodes[0].w, nodes[0].y);
+    for (var a = 1; a < nodes.length; a++) ctx.lineTo(nodes[a].x - nodes[a].w, nodes[a].y);
+    for (var b = nodes.length - 1; b >= 0; b--) ctx.lineTo(nodes[b].x + nodes[b].w, nodes[b].y);
+    ctx.closePath();
+
+    var lg = ctx.createLinearGradient(RIFT_X - 110, 0, RIFT_X + 110, 0);
+    lg.addColorStop(0, 'rgba(10,4,3,0.85)');
+    lg.addColorStop(0.34, 'rgba(112,18,8,0.72)');
+    lg.addColorStop(0.5, 'rgba(255,92,38,0.66)');
+    lg.addColorStop(0.66, 'rgba(112,18,8,0.72)');
+    lg.addColorStop(1, 'rgba(10,4,3,0.85)');
+    ctx.fillStyle = lg;
+    ctx.fill();
+
+    ctx.save();
+    ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255,206,150,0.40)';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(nodes[0].x, nodes[0].y);
+    for (var c = 1; c < nodes.length; c++) ctx.lineTo(nodes[c].x, nodes[c].y);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,240,0.55)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // 火星
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (var e = 0; e < 46; e++) {
+      var ex = RIFT_X + (rnd() - 0.5) * 300;
+      var ey = RIFT_TOP + rnd() * (RIFT_BOT - RIFT_TOP);
+      var er = 1.6 + rnd() * 5.5;
+      ctx.globalAlpha = 0.25 + rnd() * 0.55;
+      ctx.fillStyle = rnd() > 0.6 ? '#ffe0ae' : '#ff6a2a';
+      ctx.beginPath(); ctx.arc(ex, ey, er, 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- 3. 地面：碎石 / 血渍 / 脚印 ---------- */
+  function ground() {
+    var g = ctx.createLinearGradient(0, GROUND - 12, 0, H);
+    g.addColorStop(0, '#191e24');
+    g.addColorStop(0.3, '#13171d');
+    g.addColorStop(0.7, '#0d1014');
+    g.addColorStop(1, '#070a0d');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, GROUND - 12, W, H - GROUND + 12);
+
+    // 通道分界线（沿用游戏里的横向通道，但只做很淡的暗示）
+    for (var i = 1; i < CONFIG.LANES.length; i++) {
+      var ly = GROUND + (CONFIG.LANES[i] - WALL_BOT) * HOUSE_S;
+      if (ly > H) continue;
+      ctx.strokeStyle = 'rgba(130,150,170,0.045)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(W, ly); ctx.stroke();
+    }
+
+    // 碎石：近处更大更亮
+    for (var k = 0; k < 320; k++) {
+      var fy = GROUND - 20 + rnd() * (H - GROUND + 40);
+      var fx = rnd() * W;
+      var sz = (1.2 + rnd() * 6) * (0.5 + zScale(fy) * 0.34);
+      ctx.fillStyle = 'rgba(' + (rnd() > 0.5 ? '62,68,76' : '28,32,38') + ',' + (0.16 + rnd() * 0.34) + ')';
+      ctx.beginPath();
+      ctx.ellipse(fx, fy, sz * 1.7, sz * 0.72, rnd() * 3, 0, 6.283);
+      ctx.fill();
+    }
+
+    // 陈旧血渍
+    for (var b = 0; b < 26; b++) {
+      var bx = rnd() * W;
+      var by = GROUND + 20 + rnd() * (H - GROUND - 20);
+      if (Math.abs(bx - RIFT_X) < 130) continue;
+      ctx.fillStyle = 'rgba(70,16,16,' + (0.10 + rnd() * 0.16) + ')';
+      ctx.beginPath();
+      for (var s = 0; s < 5; s++) {
+        ctx.ellipse(bx + (rnd() - 0.5) * 90, by + (rnd() - 0.5) * 46,
+          6 + rnd() * 30, 4 + rnd() * 18, rnd() * 3, 0, 6.283);
+      }
+      ctx.fill();
+    }
+  }
+
+  /* ---------- 4. 地面光：门口暖光池 + 裂隙红光池 ---------- */
+  function groundLight() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    var warm = ctx.createRadialGradient(DOOR.x + DOOR.w / 2, GROUND + 40, 0,
+      DOOR.x + DOOR.w / 2, GROUND + 40, 620);
+    warm.addColorStop(0, 'rgba(255,196,110,0.20)');
+    warm.addColorStop(0.5, 'rgba(255,170,80,0.07)');
+    warm.addColorStop(1, 'rgba(255,170,80,0)');
+    ctx.fillStyle = warm;
+    ctx.fillRect(0, 0, W, H);
+
+    var red = ctx.createRadialGradient(RIFT_X, RIFT_BOT - 30, 0, RIFT_X, RIFT_BOT - 30, 760);
+    red.addColorStop(0, 'rgba(255,74,34,0.22)');
+    red.addColorStop(0.45, 'rgba(200,40,18,0.09)');
+    red.addColorStop(1, 'rgba(160,30,12,0)');
+    ctx.fillStyle = red;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  /* ---------- 5. 右侧枯树 + 断栅栏（压住右三分之一） ---------- */
+  function branch(x, y, ang, len, w, depth) {
+    if (depth <= 0 || len < 7) return;
+    var x2 = x + Math.cos(ang) * len;
+    var y2 = y + Math.sin(ang) * len;
+    ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+    var n = 2 + (rnd() > 0.62 ? 1 : 0);
+    for (var i = 0; i < n; i++) {
+      branch(x2, y2, ang + (rnd() - 0.5) * 1.2, len * (0.62 + rnd() * 0.2), w * 0.66, depth - 1);
+    }
+  }
+
+  function deadTree(x, baseY, s) {
+    ctx.lineCap = 'round';
+    // 裂隙方向的红色轮廓光：先画偏左的亮版，再用近黑覆盖主体
+    ctx.strokeStyle = 'rgba(255,86,44,0.20)';
+    branch(x - 5 * s, baseY - 4 * s, -Math.PI / 2 + 0.06, 200 * s, 26 * s, 6);
+    ctx.strokeStyle = '#080b0e';
+    branch(x, baseY, -Math.PI / 2 + 0.06, 200 * s, 26 * s, 6);
+  }
+
+  function fence() {
+    for (var i = 0; i < 7; i++) {
+      var x = 1420 + i * 88 + (rnd() - 0.5) * 16;
+      var hgt = 74 + rnd() * 34;
+      var lean = (rnd() - 0.5) * 0.16;
+      ctx.save();
+      ctx.translate(x, GROUND + 26 + rnd() * 26);
+      ctx.rotate(lean);
+      ctx.fillStyle = '#0a0d10';
+      ctx.fillRect(-7, -hgt, 14, hgt);
+      ctx.strokeStyle = 'rgba(255,86,44,0.13)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(-8, -hgt + 6); ctx.lineTo(-8, 0); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.strokeStyle = '#0a0d10';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(1400, GROUND + 30);
+    ctx.lineTo(1640, GROUND + 46);
+    ctx.stroke();
+  }
+
+  /* ---------- 6. 房子（裁掉游戏里的血条） ---------- */
+  function house() {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, W, GROUND + 6);
+    ctx.clip();
+    ctx.translate(HOFF, VOFF);
+    ctx.scale(HOUSE_S, HOUSE_S);
+    Render.drawHome({ battle: { hp: { p: 100, g: 100 }, maxHp: { p: 100, g: 100 } } }, 'p', 0.37);
+    ctx.restore();
+  }
+
+  /* ---------- 7. 门：暖光 + 抓痕 + 血手印 ---------- */
+  function doorLight() {
+    var d = DOOR;
+    var dg = ctx.createLinearGradient(0, d.y, 0, d.y + d.h);
+    dg.addColorStop(0, 'rgba(255,186,96,0.18)');
+    dg.addColorStop(0.55, 'rgba(255,196,110,0.36)');
+    dg.addColorStop(1, 'rgba(255,214,140,0.64)');
+    ctx.fillStyle = dg;
+    ctx.fillRect(d.x, d.y, d.w, d.h);
+
+    // 门板中缝 + 边框
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(d.x, d.y, d.w, d.h);
+    ctx.strokeStyle = 'rgba(0,0,0,0.32)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(d.x + d.w / 2, d.y + 6);
+    ctx.lineTo(d.x + d.w / 2, d.y + d.h - 6);
+    ctx.stroke();
+
+    // 抓痕
+    ctx.lineCap = 'round';
+    for (var i = 0; i < 3; i++) {
+      var sx = d.x + 18 + i * 26;
+      ctx.strokeStyle = 'rgba(52,10,7,0.55)';
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(sx, d.y + 14);
+      ctx.lineTo(sx + 22, d.y + d.h - 8);
+      ctx.stroke();
+    }
+
+    // 血手印（贴在门下半部）
+    ctx.save();
+    ctx.translate(d.x + d.w * 0.30, d.y + d.h * 0.72);
+    ctx.rotate(-0.24);
+    ctx.fillStyle = 'rgba(84,12,10,0.55)';
+    ctx.beginPath(); ctx.ellipse(0, 0, 17, 21, 0, 0, 6.283); ctx.fill();
+    for (var f = -2; f <= 2; f++) {
+      ctx.beginPath();
+      ctx.ellipse(f * 9, -26 - Math.abs(f) * -2, 4.2, 12, f * 0.16, 0, 6.283);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    var pool = ctx.createRadialGradient(d.x + d.w / 2, d.y + d.h, 0, d.x + d.w / 2, d.y + d.h, 380);
+    pool.addColorStop(0, 'rgba(255,196,110,0.22)');
+    pool.addColorStop(1, 'rgba(255,196,110,0)');
+    ctx.fillStyle = pool;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  /* ---------- 8. 空气尘埃 ---------- */
+  function dust() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (var i = 0; i < 130; i++) {
+      var x = rnd() * W;
+      var y = 200 + rnd() * (H - 200);
+      var r = 0.8 + rnd() * 2.6;
+      var warmSide = Math.abs(x - RIFT_X) < 700;
+      ctx.globalAlpha = 0.05 + rnd() * 0.16;
+      ctx.fillStyle = warmSide ? 'rgba(255,196,140,1)' : 'rgba(190,205,220,1)';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- 9. 气氛：暗角 + 颗粒 ---------- */
+  function atmosphere() {
+    var v = ctx.createRadialGradient(W * 0.48, H * 0.52, H * 0.20, W * 0.48, H * 0.52, H * 0.80);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(0.6, 'rgba(0,0,0,0.28)');
+    v.addColorStop(1, 'rgba(3,4,7,0.82)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
+
+    if (Render.noise) {
+      ctx.save();
+      ctx.globalAlpha = 0.05;
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.drawImage(Render.noise, 0, 0, Render.noise.width, Render.noise.height, 0, 0, W, H);
+      ctx.restore();
+    }
+  }
+
+  /* ---------- 10. 标题 ---------- */
+  function pickFont() {
+    var probe = 'MWQgi1I@#%';
+    ctx.font = '120px monospace';
+    var base = ctx.measureText(probe).width;
+    var list = ['Heiti SC', 'STHeiti', 'PingFang SC', 'Hiragino Sans GB', 'Songti SC'];
+    for (var i = 0; i < list.length; i++) {
+      ctx.font = '120px "' + list[i] + '", monospace';
+      if (Math.abs(ctx.measureText(probe).width - base) > 2) return list[i];
+    }
+    return list[0];
+  }
+
+  function titleBlock() {
+    var fam = pickFont();
+    var T1 = 214, TRACK = 14;
+    var baseY = 292;
+
+    // 顶部压暗，保证字压得住
+    var scrim = ctx.createLinearGradient(0, 0, 0, 500);
+    scrim.addColorStop(0, 'rgba(4,5,8,0.88)');
+    scrim.addColorStop(0.5, 'rgba(4,5,8,0.52)');
+    scrim.addColorStop(1, 'rgba(4,5,8,0)');
+    ctx.fillStyle = scrim;
+    ctx.fillRect(0, 0, W, 500);
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    var cx = W / 2 - TRACK / 2;
+
+    if ('letterSpacing' in ctx) ctx.letterSpacing = TRACK + 'px';
+    ctx.font = '600 ' + T1 + 'px "' + fam + '", "Heiti SC", "PingFang SC", sans-serif';
+    var m = ctx.measureText(TITLE);
+
+    // 1. 裂隙红光垫底
+    ctx.shadowColor = 'rgba(255,58,30,0.55)';
+    ctx.shadowBlur = 96;
+    ctx.fillStyle = 'rgba(255,90,50,0.55)';
+    ctx.fillText(TITLE, cx, baseY);
+    ctx.fillText(TITLE, cx, baseY);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // 2. 立体挤出（向下叠三份）
+    ctx.strokeStyle = 'rgba(5,4,6,0.95)';
+    ctx.lineWidth = 20;
+    for (var i = 3; i >= 1; i--) ctx.strokeText(TITLE, cx, baseY + i * 7);
+
+    // 3. 主体：暗描边 + 暖白渐变
+    ctx.lineWidth = 22;
+    ctx.strokeText(TITLE, cx, baseY);
+    var g = ctx.createLinearGradient(0, baseY - 168, 0, baseY + 18);
+    g.addColorStop(0, '#FFFAF0');
+    g.addColorStop(0.40, '#F7ECD9');
+    g.addColorStop(0.76, '#E2C69A');
+    g.addColorStop(1, '#C0955A');
+    ctx.fillStyle = g;
+    ctx.fillText(TITLE, cx, baseY);
+
+    // 4. 下半截的血光
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, baseY - 46, W, 70);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(255,64,32,0.17)';
+    ctx.fillText(TITLE, cx, baseY);
+    ctx.restore();
+
+    // 金线 + 副标题
+    var ruleY = baseY + 60;
+    var rg = ctx.createLinearGradient(W / 2 - 430, 0, W / 2 + 430, 0);
+    rg.addColorStop(0, 'rgba(244,198,106,0)');
+    rg.addColorStop(0.5, 'rgba(244,198,106,0.85)');
+    rg.addColorStop(1, 'rgba(244,198,106,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(W / 2 - 430, ruleY, 860, 3);
+
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '10px';
+    ctx.font = '500 46px "' + fam + '", "Heiti SC", sans-serif';
+    ctx.fillStyle = 'rgba(244,198,106,0.95)';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 20;
+    ctx.fillText(TAGLINE, W / 2 - 5, ruleY + 66);
+    ctx.restore();
+
+    var inkLeft = cx - m.actualBoundingBoxLeft;
+    var inkRight = cx + m.actualBoundingBoxRight;
+    window.COVER_METRICS = {
+      size: [W, H],
+      titleFont: fam,
+      titleSize: T1,
+      titleTracking: TRACK,
+      titleBaseline: baseY,
+      titleAdvance: Math.round(m.width),
+      titleInk: [Math.round(inkLeft), Math.round(inkRight)],
+      titleTop: Math.round(baseY - m.actualBoundingBoxAscent),
+      titleBottom: Math.round(baseY + m.actualBoundingBoxDescent),
+      blockBottom: ruleY + 66,
+      warnings: [
+        inkLeft < 60 ? '标题左越界' : null,
+        inkRight > W - 60 ? '标题右越界' : null,
+        baseY - m.actualBoundingBoxAscent < 40 ? '标题顶越界' : null,
+        ruleY + 66 > hy(WALL_TOP - 96) - 10 ? '副标题压到屋顶' : null
+      ].filter(Boolean)
+    };
+  }
+
+  /* ---------- 组装 ---------- */
+  var horde = [
+    mz({ type: 'runner',   x: 1150, feetY: 1115, phase: 0.35 }),
+    mz({ type: 'walker',   x: 1010, feetY: 1205, phase: 2.30 }),
+    mz({ type: 'screamer', x: 1290, feetY: 1175, phase: 1.20 }),
+    mz({ type: 'runner',   x: 1355, feetY: 1230, phase: 1.90 }),
+    mz({ type: 'tank',     x: 1000, feetY: 1240, phase: 0.90 }),
+    mz({ type: 'walker',   x: 890,  feetY: 1290, phase: 4.10 }),
+    mz({ type: 'brute',    x: 1150, feetY: 1300, phase: 3.40 }),
+    mz({ type: 'walker',   x: 660,  feetY: 1360, phase: 5.00 }),
+    mz({ type: 'runner',   x: 1690, feetY: 1400, phase: 2.70 }),
+    mz({ type: 'walker',   x: 40,   feetY: 1490, phase: 2.60 }),
+    // 右下角的前景剪影：压住空场，同时把视线推回画面中心
+    mz({ type: 'brute',    x: 2010, feetY: 1520, scale: 6.00, phase: 3.90 })
+  ];
+  var knocker = mz({ type: 'brute', x: 492, feetY: 1062, scale: 3.10, phase: 1.15, pose: POSE_KNOCK });
+
+  var origRandom = Math.random;
+  Math.random = mulberry32(31337);
+
+  sky();
+  rift();
+  ground();
+  groundLight();
+  deadTree(1830, GROUND + 34, 1.35);
+  fence();
+
+  horde.concat([knocker]).sort(function (a, b) { return a.y - b.y; }).forEach(function (z) {
+    if (z === knocker) return;
+    Render.drawZombie(z, 0.37);
+  });
+
+  // 裂隙的红光压在怪群身上，统一光源
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  var hg = ctx.createRadialGradient(RIFT_X - 260, 1180, 0, RIFT_X - 260, 1180, 940);
+  hg.addColorStop(0, 'rgba(255,74,34,0.10)');
+  hg.addColorStop(1, 'rgba(255,74,34,0)');
+  ctx.fillStyle = hg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  house();
+  doorLight();
+  Render.drawZombie(knocker, 0.37);
+
+  dust();
+  atmosphere();
+  titleBlock();
+
+  Math.random = origRandom;
+  window.COVER_READY = true;
+})();
+</script>
+</body>
+</html>

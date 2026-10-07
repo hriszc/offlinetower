@@ -1,0 +1,56 @@
+# iOS 壳工程（XcodeGen 规格）。生成物 ZombieKnock.xcodeproj 不入库，随时可重建：
+#
+#   node tools/build_ios.js     # 先把网页资源收口到 Resources/web 并出图标
+#   xcodegen generate           # 在 ios/ 下生成 ZombieKnock.xcodeproj
+#
+# 网页本体（index.html / css / js）保持零构建，这里只做壳。
+name: ZombieKnock
+
+options:
+  bundleIdPrefix: com.zhaochen
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "16.0"
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "2"
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "9ZKSMS97F3"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  ZombieKnock:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources/Assets.xcassets
+      - path: Resources/PrivacyInfo.xcprivacy
+      # 网页资源整体作为「蓝色文件夹」拷进 bundle，目录结构原样保留
+      - path: Resources/web
+        type: folder
+    settings:
+      base:
+        INFOPLIST_FILE: Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.zequnhuang.zombieknock
+        PRODUCT_NAME: ZombieKnock
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+    SUPPORTS_MACCATALYST: NO
+    SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+
+# 本地方便验证内购：Run 时挂上 StoreKit 测试配置（ZombieKnock.storekit 里的
+# 商品 ID 必须和 js/config.js 的 MONETIZE.PRODUCT_ID 一致）。
+# 国内店面遵循 js/monetize.js 的商店可用性与 fail-open；iOS 不接广告。
+schemes:
+  ZombieKnock:
+    build:
+      targets:
+        ZombieKnock: all
+    run:
+      config: Debug
+      storeKitConfiguration: ZombieKnock.storekit

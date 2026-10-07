@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#293e57">
+<link rel="icon" type="image/png" sizes="32x32" href="./assets/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./assets/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png">
+<title data-i18n="static.title">僵尸在敲门</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+<div id="viewportScene" data-scene="home" aria-hidden="true">
+  <canvas id="edgeScene"></canvas>
+  <img class="edgeHome" src="./assets/ui-home-scene-v1.jpg" alt="" draggable="false">
+</div>
+<div id="stage">
+  <canvas id="game" tabindex="0" role="application" aria-label="战场：方向键移动，回车放置或选中，Esc取消"></canvas>
+  <div id="fieldStatus" class="srOnly" role="status" aria-live="polite"></div>
+  <button id="pauseBtn" type="button" aria-label="暂停">Ⅱ</button>
+  <div id="atmosphere" aria-hidden="true">
+    <div class="film"></div>
+    <div class="grain"></div>
+    <div id="dangerVeil"></div>
+    <div id="whisper"></div>
+  </div>
+
+  <div id="hud">
+    <div class="side p">
+      <div class="hname" data-i18n="static.yourHome">你的家园</div>
+      <div class="bar"><i id="pHpBar"></i></div>
+      <div class="hnum" id="pHpTxt">100 / 100</div>
+    </div>
+    <div class="mid">
+      <div id="timer">--</div>
+      <div id="roundLbl" data-i18n="static.roundLabel">第 1 / 12 小局</div>
+    </div>
+    <div class="side g">
+      <div class="hname" id="gName" data-i18n="static.mirrorName">镜像</div>
+      <div class="bar g"><i id="gHpBar"></i></div>
+      <div class="hnum" id="gHpTxt">100 / 100</div>
+      <div class="gtag" id="gTag"></div>
+    </div>
+  </div>
+
+  <div id="relicBar"></div>
+  <div id="pips"></div>
+  <div id="lead" class="lead"></div>
+
+  <div id="buildBar">
+    <div class="info shopTrayLabel">
+      <div class="coins"><span data-i18n="static.coins">金币</span> <b id="coins">0</b></div>
+    <div class="hint" id="buildHint" data-i18n="static.buildHint">拖动动物卡片到空地放置 · 也可以先点卡片再点空地</div>
+    </div>
+    <div class="shopTray"><div id="cards"></div></div>
+    <button id="startBtn" class="start" data-i18n="static.startDefense">开始防守</button>
+  </div>
+
+  <div id="bottom">
+    <div id="battleBar">
+      <button id="flareBtn" class="ability"><span class="abilityName" data-i18n="static.flareName">照明弹</span><b id="flareN">3</b><em data-i18n="static.flareHint">点按钮再点战场</em></button>
+      <div class="battleTip" data-i18n="static.battleTip">裂隙两侧各吐出一半怪物 · 别让脚步声先到你家门口</div>
+      <button id="repairBtn" class="ability"><span class="abilityName" data-i18n="static.repairName">急修</span><b id="repairN">2</b><em data-i18n="static.repairHint">立刻回 16 点</em></button>
+    </div>
+  </div>
+
+  <div id="matchmaking" aria-live="polite"></div>
+  <div id="coopHud" aria-live="polite"></div>
+  <div id="placementConfirm" aria-live="polite"></div>
+  <div id="tutorialHand" aria-live="polite"></div>
+  <button id="tutorialSkip" type="button" data-i18n="static.skipTutorial">跳过教学</button>
+  <div id="unitPanel"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="overlay"></div>
+</div>
+
+<script src="./js/i18n.js"></script>
+<script src="./js/config.js"></script>
+<script src="./js/sim.js"></script>
+<script src="./js/bots.js"></script>
+<script src="./js/audio.js"></script>
+<script src="./js/art_assets.js"></script>
+<script src="./js/render.js"></script>
+<script src="./js/meta.js"></script>
+<script src="./js/monetize.js"></script>
+<script src="./js/ui.js"></script>
+<script src="./js/main.js"></script>
+</body>
+</html>
